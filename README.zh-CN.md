@@ -1,7 +1,4 @@
-﻿<p align=\ center\>
-  <a href=\README.md\><img src=\https://img.shields.io/badge/English-README-blue?style=flat-square\ alt=\English\ /></a>
-  <a href=\README.zh-CN.md\><img src=\https://img.shields.io/badge/中文-说明-orange?style=flat-square\ alt=\中文\ /></a>
-</p>
+﻿[English](README.md) · [中文](README.zh-CN.md)
 
 # Dragger（Obsidian 插件）
 
@@ -73,3 +70,10 @@ npm run build
 
 ## 许可
 MIT
+
+---
+
+## 贡献
+欢迎提交 PR 和 Issue。
+
+如果这个插件对你有帮助，欢迎点个 Star ⭐

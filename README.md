@@ -1,7 +1,4 @@
-﻿<p align=\ center\>
-  <a href=\README.md\><img src=\https://img.shields.io/badge/English-README-blue?style=flat-square\ alt=\English\ /></a>
-  <a href=\README.zh-CN.md\><img src=\https://img.shields.io/badge/中文-说明-orange?style=flat-square\ alt=\中文\ /></a>
-</p>
+﻿[English](README.md) · [中文](README.zh-CN.md)
 
 # Dragger (Obsidian Plugin)
 
@@ -73,3 +70,10 @@ npm run build
 
 ## License
 MIT
+
+---
+
+## Contributing
+PRs and issues are welcome.
+
+If this plugin helps you, a star would mean a lot. ⭐
