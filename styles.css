@@ -14,14 +14,14 @@
     cursor: grab;
     opacity: 0;
     transition: opacity 0.15s ease;
-    color: var(--text-muted);
+    color: var(--dnd-handle-color, var(--text-muted));
     border-radius: 3px;
     z-index: 1;
 }
 
 .dnd-drag-handle:hover {
     opacity: 1 !important;
-    color: var(--text-accent);
+    color: var(--dnd-handle-color-hover, var(--dnd-handle-color, var(--text-accent)));
     background-color: var(--background-modifier-hover);
 }
 
@@ -44,6 +44,40 @@
     top: 0;
     transform: none;
     height: 100%;
+}
+
+/* 嵌入块的手柄样式修正（固定定位，避免被裁剪） */
+.dnd-embed-handle {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: none;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.dnd-embed-handle.is-visible {
+    opacity: 1;
+    color: var(--dnd-handle-color-hover, var(--dnd-handle-color, var(--text-accent)));
+    background-color: var(--background-modifier-hover);
+}
+
+/* 常态显示拖拽手柄 */
+body.dnd-handles-always .dnd-drag-handle {
+    opacity: 0.6;
+}
+
+body.dnd-handles-always .cm-line:hover .dnd-drag-handle {
+    opacity: 0.9;
+}
+
+body.dnd-handles-always .dnd-embed-handle {
+    opacity: 0.6;
+}
+
+body.dnd-handles-always .dnd-embed-handle.is-visible {
+    opacity: 1;
 }
 
 /* 拖拽中的状态 */
@@ -80,11 +114,11 @@ body.dnd-dragging .cm-line:hover {
 /* 放置位置指示器 */
 .dnd-drop-indicator {
     height: 3px;
-    background: var(--interactive-accent);
+    background: var(--dnd-drop-indicator-color, var(--interactive-accent));
     pointer-events: none;
     z-index: 10000;
     border-radius: 2px;
-    box-shadow: 0 0 6px var(--interactive-accent);
+    box-shadow: 0 0 6px var(--dnd-drop-indicator-color, var(--interactive-accent));
 }
 
 .dnd-drop-indicator::before,
@@ -93,7 +127,7 @@ body.dnd-dragging .cm-line:hover {
     position: absolute;
     width: 6px;
     height: 6px;
-    background-color: var(--interactive-accent);
+    background-color: var(--dnd-drop-indicator-color, var(--interactive-accent));
     border-radius: 50%;
     top: -2px;
 }

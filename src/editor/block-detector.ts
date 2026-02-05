@@ -22,6 +22,11 @@ export function detectBlockType(lineText: string): BlockType {
         return BlockType.CodeBlock;
     }
 
+    // 数学块（$$）
+    if (/^\$\$/.test(trimmed)) {
+        return BlockType.MathBlock;
+    }
+
     // 引用块
     if (/^>/.test(trimmed)) {
         return BlockType.Blockquote;
@@ -57,6 +62,49 @@ export function getIndentLevel(lineText: string): number {
     return Math.floor(spaces.replace(/\t/g, '  ').length / 2);
 }
 
+function isBlockquoteLine(lineText: string): boolean {
+    return lineText.trimStart().startsWith('>');
+}
+
+function isTableLine(lineText: string): boolean {
+    return lineText.trimStart().startsWith('|');
+}
+
+function isMathFenceLine(lineText: string): boolean {
+    return lineText.trimStart().startsWith('$$');
+}
+
+function getMathRangeFromStart(doc: Text, startLine: number): { startLine: number; endLine: number } | null {
+    const startText = doc.line(startLine).text.trimStart();
+    if (!startText.startsWith('$$')) return null;
+    const rest = startText.slice(2);
+    if (rest.includes('$$')) {
+        return { startLine, endLine: startLine };
+    }
+
+    for (let i = startLine + 1; i <= doc.lines; i++) {
+        const nextLine = doc.line(i);
+        if (isMathFenceLine(nextLine.text)) {
+            return { startLine, endLine: i };
+        }
+    }
+
+    return null;
+}
+
+function findMathBlockRange(doc: Text, lineNumber: number): { startLine: number; endLine: number } | null {
+    for (let i = lineNumber; i >= 1; i--) {
+        const line = doc.line(i);
+        if (!isMathFenceLine(line.text)) continue;
+        const range = getMathRangeFromStart(doc, i);
+        if (!range) return null;
+        if (lineNumber <= range.endLine) return range;
+        return null;
+    }
+
+    return null;
+}
+
 /**
  * 检测块的完整范围（包括多行块如代码块）
  */
@@ -69,7 +117,12 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
 
     const line = doc.line(lineNumber);
     const lineText = line.text;
-    const blockType = detectBlockType(lineText);
+    let blockType = detectBlockType(lineText);
+
+    const mathRange = findMathBlockRange(doc, lineNumber);
+    if (mathRange) {
+        blockType = BlockType.MathBlock;
+    }
 
     if (blockType === BlockType.Unknown) {
         return null;
@@ -78,12 +131,29 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
     let startLine = lineNumber;
     let endLine = lineNumber;
 
+    if (blockType === BlockType.MathBlock && mathRange) {
+        startLine = mathRange.startLine;
+        endLine = mathRange.endLine;
+    }
+
     // 代码块：找到结束的```
     if (blockType === BlockType.CodeBlock && lineText.trimStart().startsWith('```')) {
         for (let i = lineNumber + 1; i <= doc.lines; i++) {
             const nextLine = doc.line(i);
             if (nextLine.text.trimStart().startsWith('```')) {
                 endLine = i;
+                break;
+            }
+        }
+    }
+
+    // 引用块：向上合并连续的>行，避免在块中间产生断裂
+    if (blockType === BlockType.Blockquote) {
+        for (let i = lineNumber - 1; i >= 1; i--) {
+            const prevLine = doc.line(i);
+            if (isBlockquoteLine(prevLine.text)) {
+                startLine = i;
+            } else {
                 break;
             }
         }
@@ -117,8 +187,20 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
     if (blockType === BlockType.Blockquote) {
         for (let i = lineNumber + 1; i <= doc.lines; i++) {
             const nextLine = doc.line(i);
-            if (nextLine.text.trimStart().startsWith('>')) {
+            if (isBlockquoteLine(nextLine.text)) {
                 endLine = i;
+            } else {
+                break;
+            }
+        }
+    }
+
+    // 表格：向上合并连续的|行
+    if (blockType === BlockType.Table) {
+        for (let i = lineNumber - 1; i >= 1; i--) {
+            const prevLine = doc.line(i);
+            if (isTableLine(prevLine.text)) {
+                startLine = i;
             } else {
                 break;
             }
@@ -129,7 +211,7 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
     if (blockType === BlockType.Table) {
         for (let i = lineNumber + 1; i <= doc.lines; i++) {
             const nextLine = doc.line(i);
-            if (nextLine.text.trimStart().startsWith('|')) {
+            if (isTableLine(nextLine.text)) {
                 endLine = i;
             } else {
                 break;
@@ -139,6 +221,7 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
 
     const startLineObj = doc.line(startLine);
     const endLineObj = doc.line(endLine);
+    const startLineText = startLineObj.text;
 
     // 收集块内容
     let content = '';
@@ -153,7 +236,7 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
         endLine: endLine - 1,
         from: startLineObj.from,
         to: endLineObj.to,
-        indentLevel: getIndentLevel(lineText),
+        indentLevel: getIndentLevel(startLineText),
         content,
     };
 }

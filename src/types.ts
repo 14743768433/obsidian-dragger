@@ -8,6 +8,7 @@ export enum BlockType {
     CodeBlock = 'code-block',
     Blockquote = 'blockquote',
     Table = 'table',
+    MathBlock = 'math-block',
     Callout = 'callout',
     HorizontalRule = 'hr',
     Unknown = 'unknown',
