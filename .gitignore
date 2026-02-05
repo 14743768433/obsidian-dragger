@@ -22,6 +22,7 @@ Thumbs.db
 # Test files
 *.md
 !README.md
+!README.zh-CN.md
 
 # Logs
 *.log
