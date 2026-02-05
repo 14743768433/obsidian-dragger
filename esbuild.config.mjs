@@ -4,12 +4,17 @@ import builtins from "builtin-modules";
 import fs from "fs";
 
 const prod = process.argv[2] === "production";
-const pluginDir = ".obsidian/plugins/drag-n-drop";
+const pluginDir = ".obsidian/plugins/dragger";
 
 // 复制 styles.css 到插件目录
 function copyStyles() {
     fs.copyFileSync("styles.css", `${pluginDir}/styles.css`);
     console.log("✓ styles.css copied to plugin directory");
+}
+
+function copyManifest() {
+    fs.copyFileSync("manifest.json", `${pluginDir}/manifest.json`);
+    console.log("✓ manifest.json copied to plugin directory");
 }
 
 const context = await esbuild.context({
@@ -42,8 +47,10 @@ const context = await esbuild.context({
 if (prod) {
     await context.rebuild();
     copyStyles();
+    copyManifest();
     process.exit(0);
 } else {
     copyStyles();
+    copyManifest();
     await context.watch();
 }

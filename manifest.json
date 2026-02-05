@@ -1,0 +1,10 @@
+{
+  "id": "dragger",
+  "name": "Dragger",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.0",
+  "description": "Drag and drop any block (paragraphs, headings, lists, etc.) to rearrange content like Notion",
+  "author": "Ariestar",
+  "authorUrl": "https://github.com/Ariestar",
+  "isDesktopOnly": true
+}

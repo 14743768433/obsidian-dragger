@@ -37,7 +37,7 @@ export class DragNDropSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl('h2', { text: 'Drag n Drop 设置' });
+        containerEl.createEl('h2', { text: 'Dragger 设置' });
 
         containerEl.createEl('h3', { text: '样式' });
 
