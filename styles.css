@@ -1,0 +1,112 @@
+/* Drag n Drop 插件样式 */
+
+/* 拖拽手柄 - 使用绝对定位避免挤占空间 */
+.dnd-drag-handle {
+    position: absolute;
+    left: -42px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: grab;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    color: var(--text-muted);
+    border-radius: 3px;
+    z-index: 1;
+}
+
+.dnd-drag-handle:hover {
+    opacity: 1 !important;
+    color: var(--text-accent);
+    background-color: var(--background-modifier-hover);
+}
+
+.dnd-drag-handle:active {
+    cursor: grabbing;
+}
+
+/* 当鼠标悬停在行上时显示手柄 */
+.cm-line:hover .dnd-drag-handle {
+    opacity: 0.5;
+}
+
+/* 确保cm-line有相对定位 */
+.markdown-source-view.mod-cm6 .cm-line {
+    position: relative;
+}
+
+/* 标题行的手柄居中修正 */
+.cm-line.HyperMD-header .dnd-drag-handle {
+    top: 0;
+    transform: none;
+    height: 100%;
+}
+
+/* 拖拽中的状态 */
+body.dnd-dragging {
+    cursor: grabbing !important;
+}
+
+body.dnd-dragging * {
+    cursor: grabbing !important;
+}
+
+body.dnd-dragging .cm-line:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+/* 拖拽时的ghost预览 */
+.dnd-drag-ghost {
+    position: absolute;
+    left: -9999px;
+    padding: 4px 8px;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-normal);
+    max-width: 300px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+}
+
+/* 放置位置指示器 */
+.dnd-drop-indicator {
+    height: 3px;
+    background: var(--interactive-accent);
+    pointer-events: none;
+    z-index: 10000;
+    border-radius: 2px;
+    box-shadow: 0 0 6px var(--interactive-accent);
+}
+
+.dnd-drop-indicator::before,
+.dnd-drop-indicator::after {
+    content: '';
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background-color: var(--interactive-accent);
+    border-radius: 50%;
+    top: -2px;
+}
+
+.dnd-drop-indicator::before {
+    left: -3px;
+}
+
+.dnd-drop-indicator::after {
+    right: -3px;
+}
+
+/* 确保编辑器有足够的左边距显示手柄 */
+.markdown-source-view.mod-cm6 .cm-content {
+    padding-left: 32px;
+}

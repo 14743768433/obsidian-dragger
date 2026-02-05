@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output (generated files go to .obsidian/plugins/)
+*.js
+*.js.map
+
+# But keep config files
+!esbuild.config.mjs
+
+# Obsidian test vault
+.obsidian/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+*.md
+!README.md
+
+# Logs
+*.log
+npm-debug.log*
