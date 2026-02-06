@@ -614,8 +614,19 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                             const indentDeltaBase = (targetContext ? targetContext.indentWidth : 0) - sourceParsed.indentWidth;
                             targetIndentWidth = sourceParsed.indentWidth + indentDeltaBase + ((listIndentDeltaOverride ?? 0) * indentUnitWidth);
                         }
-                        if (typeof targetIndentWidth === 'number' && targetIndentWidth < sourceParsed.indentWidth) {
-                            allowInPlaceIndentChange = true;
+                        if (typeof targetIndentWidth === 'number') {
+                            const isAfterSelf = targetLineIdx === sourceBlock.endLine + 1;
+                            const isSameLine = targetLineIdx === sourceBlock.startLine;
+                            const sourceLineNumber = sourceBlock.startLine + 1;
+                            const listContextLineNumber = listContextLineNumberOverride ?? targetLineNumber;
+                            const isSelfContext = listContextLineNumber === sourceLineNumber;
+                            if (isAfterSelf && targetIndentWidth !== sourceParsed.indentWidth) {
+                                allowInPlaceIndentChange = true;
+                            } else if (isSameLine && targetIndentWidth !== sourceParsed.indentWidth && !isSelfContext) {
+                                allowInPlaceIndentChange = true;
+                            } else if (!isAfterSelf && targetIndentWidth < sourceParsed.indentWidth) {
+                                allowInPlaceIndentChange = true;
+                            }
                         }
                     }
                 }
@@ -1302,25 +1313,10 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 let listIndentDelta: number | undefined = undefined;
                 let listTargetIndentWidth: number | undefined = undefined;
                 let highlightRect: { top: number; left: number; width: number; height: number } | undefined = undefined;
+                let lineRectSourceLineNumber: number = line.number;
+                let indicatorYOverride: number | undefined = undefined;
                 if (blockAtPos && blockAtPos.type === BlockType.ListItem) {
                     const blockStartLine = view.state.doc.line(blockAtPos.startLine + 1);
-                    const blockEndLine = view.state.doc.line(blockAtPos.endLine + 1);
-                    const startCoords = view.coordsAtPos(blockStartLine.from);
-                    const endCoords = view.coordsAtPos(blockEndLine.to);
-
-                    if (startCoords && endCoords) {
-                        const mouseY = info.clientY;
-                        const midPoint = (startCoords.top + endCoords.bottom) / 2;
-                        if (mouseY < midPoint) {
-                            line = blockStartLine;
-                            showAtBottom = false;
-                            forcedLineNumber = blockAtPos.startLine + 1;
-                        } else {
-                            line = blockEndLine;
-                            showAtBottom = true;
-                            forcedLineNumber = blockAtPos.endLine + 2;
-                        }
-                    }
 
                     const isSelfTarget = !!dragSource
                         && dragSource.type === BlockType.ListItem
@@ -1333,7 +1329,38 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                         listTargetIndentWidth = dropTarget.indentWidth;
                         const highlightBlock = detectBlock(view.state, dropTarget.lineNumber);
                         if (highlightBlock && highlightBlock.type === BlockType.ListItem) {
-                            highlightRect = this.getBlockRect(view, highlightBlock.startLine + 1, highlightBlock.endLine + 1);
+                            if (dropTarget.mode !== 'child') {
+                                lineRectSourceLineNumber = highlightBlock.startLine + 1;
+                            }
+                            const blockStartLineNumber = highlightBlock.startLine + 1;
+                            const blockEndLineNumber = highlightBlock.endLine + 1;
+                            const bounds = this.getListMarkerBounds(view, blockStartLineNumber);
+                            const startLineObj = view.state.doc.line(blockStartLineNumber);
+                            const endLineObj = view.state.doc.line(blockEndLineNumber);
+                            const startCoords = view.coordsAtPos(startLineObj.from);
+                            const endCoords = view.coordsAtPos(endLineObj.to);
+                            if (bounds && startCoords && endCoords) {
+                                const left = bounds.markerStartX;
+                                let maxRight = left;
+                                for (let i = blockStartLineNumber; i <= blockEndLineNumber; i++) {
+                                    const lineObj = view.state.doc.line(i);
+                                    const lineEndCoords = view.coordsAtPos(lineObj.to);
+                                    if (!lineEndCoords) continue;
+                                    const right = lineEndCoords.right ?? lineEndCoords.left;
+                                    if (right > maxRight) {
+                                        maxRight = right;
+                                    }
+                                }
+                                const width = Math.max(8, maxRight - left);
+                                highlightRect = {
+                                    top: startCoords.top,
+                                    left,
+                                    width,
+                                    height: Math.max(4, endCoords.bottom - startCoords.top),
+                                };
+                            } else {
+                                highlightRect = this.getBlockRect(view, blockStartLineNumber, blockEndLineNumber);
+                            }
                         }
                     }
                 }
@@ -1343,14 +1370,17 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     : view.coordsAtPos(line.from);
                 if (!coords) return null;
 
-                const indicatorY = showAtBottom ? coords.bottom : coords.top;
+                let indicatorY = showAtBottom ? coords.bottom : coords.top;
+                if (typeof indicatorYOverride === 'number') {
+                    indicatorY = indicatorYOverride;
+                }
                 const lineNumber = forcedLineNumber ?? (showAtBottom ? line.number + 1 : line.number);
-                let lineRect = this.getLineRect(view, line.number);
+                let lineRect = this.getLineRect(view, lineRectSourceLineNumber);
                 if (typeof listTargetIndentWidth === 'number') {
-                    const indentPos = this.getLineIndentPosByWidth(view, line.number, listTargetIndentWidth);
+                    const indentPos = this.getLineIndentPosByWidth(view, lineRectSourceLineNumber, listTargetIndentWidth);
                     if (indentPos !== null) {
                         const start = view.coordsAtPos(indentPos);
-                        const end = view.coordsAtPos(line.to);
+                        const end = view.coordsAtPos(view.state.doc.line(lineRectSourceLineNumber).to);
                         if (start && end) {
                             const left = start.left;
                             const width = Math.max(8, (end.right ?? end.left) - left);
