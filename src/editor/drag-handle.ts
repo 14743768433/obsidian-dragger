@@ -17,6 +17,19 @@ type EmbedHandleEntry = {
     hide: (e: MouseEvent) => void;
 };
 
+interface ParsedLine {
+    text: string;
+    quotePrefix: string;
+    quoteDepth: number;
+    rest: string;
+    isListItem: boolean;
+    indentRaw: string;
+    indentWidth: number;
+    marker: string;
+    markerType: 'ordered' | 'unordered' | 'task';
+    content: string;
+}
+
 function startDragWithBlockInfo(e: DragEvent, blockInfo: BlockInfo, handle?: HTMLElement | null): void {
     if (!e.dataTransfer) return;
     e.dataTransfer.effectAllowed = 'move';
@@ -587,7 +600,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 let allowInPlaceIndentChange = false;
                 if (inSelfRange && (listTargetIndentWidthOverride !== undefined || listIndentDeltaOverride !== undefined)) {
                     const sourceLineText = doc.line(sourceBlock.startLine + 1).text;
-                    const sourceParsed = this.parseListLine(this.splitBlockquotePrefix(sourceLineText).rest);
+                    const sourceParsed = this.parseLineWithQuote(sourceLineText);
                     if (sourceParsed.isListItem) {
                         let targetIndentWidth = listTargetIndentWidthOverride;
                         if (targetIndentWidth === undefined) {
@@ -830,13 +843,12 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
                 const quoteAdjustedLines = lines.map((line) => {
                     if (line.trim().length === 0) return line;
-                    const quoteInfo = this.splitBlockquotePrefix(line);
-                    const rest = quoteInfo.rest;
-                    const parsed = this.parseListLine(rest);
+                    const parsed = this.parseLineWithQuote(line);
+                    const rest = parsed.rest;
                     if (!parsed.isListItem) {
                         if (parsed.indentWidth >= sourceBase.indentWidth) {
                             const newIndent = this.buildIndentStringFromSample(indentSample, parsed.indentWidth + indentDelta);
-                            return `${quoteInfo.prefix}${newIndent}${rest.slice(parsed.indentRaw.length)}`;
+                            return `${parsed.quotePrefix}${newIndent}${rest.slice(parsed.indentRaw.length)}`;
                         }
                         return line;
                     }
@@ -846,7 +858,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     if (targetContext && parsed.indentWidth === sourceBase.indentWidth) {
                         marker = this.buildTargetMarker(targetContext, parsed);
                     }
-                    return `${quoteInfo.prefix}${newIndent}${marker}${parsed.content}`;
+                    return `${parsed.quotePrefix}${newIndent}${marker}${parsed.content}`;
                 });
 
                 return quoteAdjustedLines.join('\n');
@@ -854,7 +866,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
             getListContext(doc: { line: (n: number) => { text: string }; lines: number }, lineNumber: number): { indentWidth: number; indentRaw: string; markerType: 'ordered' | 'unordered' | 'task' } | null {
                 const current = lineNumber <= doc.lines ? doc.line(lineNumber).text : '';
-                const currentParsed = this.parseListLine(this.splitBlockquotePrefix(current).rest);
+                const currentParsed = this.parseLineWithQuote(current);
                 if (currentParsed.isListItem) {
                     return { indentWidth: currentParsed.indentWidth, indentRaw: currentParsed.indentRaw, markerType: currentParsed.markerType };
                 }
@@ -862,7 +874,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 const prevLineNumber = lineNumber - 1;
                 if (prevLineNumber >= 1) {
                     const prevText = doc.line(prevLineNumber).text;
-                    const prevParsed = this.parseListLine(this.splitBlockquotePrefix(prevText).rest);
+                    const prevParsed = this.parseLineWithQuote(prevText);
                     if (prevParsed.isListItem) {
                         return { indentWidth: prevParsed.indentWidth, indentRaw: prevParsed.indentRaw, markerType: prevParsed.markerType };
                     }
@@ -873,8 +885,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
             getSourceListBase(lines: string[]): { indentWidth: number; indentRaw: string } | null {
                 for (const line of lines) {
-                    const rest = this.splitBlockquotePrefix(line).rest;
-                    const parsed = this.parseListLine(rest);
+                    const parsed = this.parseLineWithQuote(line);
                     if (parsed.isListItem) {
                         return { indentWidth: parsed.indentWidth, indentRaw: parsed.indentRaw };
                     }
@@ -886,6 +897,23 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 const match = line.match(/^(\s*> ?)+/);
                 if (!match) return { prefix: '', rest: line };
                 return { prefix: match[0], rest: line.slice(match[0].length) };
+            }
+
+            parseLineWithQuote(line: string): ParsedLine {
+                const quoteInfo = this.splitBlockquotePrefix(line);
+                const parsed = this.parseListLine(quoteInfo.rest);
+                return {
+                    text: line,
+                    quotePrefix: quoteInfo.prefix,
+                    quoteDepth: this.getBlockquoteDepthFromLine(line),
+                    rest: quoteInfo.rest,
+                    isListItem: parsed.isListItem,
+                    indentRaw: parsed.indentRaw,
+                    indentWidth: parsed.indentWidth,
+                    marker: parsed.marker,
+                    markerType: parsed.markerType,
+                    content: parsed.content,
+                };
             }
 
             parseListLine(line: string): { isListItem: boolean; indentRaw: string; indentWidth: number; marker: string; markerType: 'ordered' | 'unordered' | 'task'; content: string } {
@@ -918,14 +946,14 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             findParentListLineNumber(doc: { line: (n: number) => { text: string }; lines: number }, lineNumber: number): number | null {
                 if (lineNumber < 1 || lineNumber > doc.lines) return null;
                 const currentText = doc.line(lineNumber).text;
-                const currentParsed = this.parseListLine(this.splitBlockquotePrefix(currentText).rest);
+                const currentParsed = this.parseLineWithQuote(currentText);
                 if (!currentParsed.isListItem) return null;
                 const currentIndent = currentParsed.indentWidth;
 
                 for (let i = lineNumber - 1; i >= 1; i--) {
                     const text = doc.line(i).text;
                     if (text.trim().length === 0) continue;
-                    const parsed = this.parseListLine(this.splitBlockquotePrefix(text).rest);
+                    const parsed = this.parseLineWithQuote(text);
                     if (!parsed.isListItem) continue;
                     if (parsed.indentWidth < currentIndent) return i;
                 }
@@ -936,16 +964,15 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             getListMarkerX(view: EditorView, lineNumber: number): number | null {
                 if (lineNumber < 1 || lineNumber > view.state.doc.lines) return null;
                 const line = view.state.doc.line(lineNumber);
-                const quoteInfo = this.splitBlockquotePrefix(line.text);
-                const parsed = this.parseListLine(quoteInfo.rest);
+                const parsed = this.parseLineWithQuote(line.text);
                 if (!parsed.isListItem) return null;
-                const markerPos = line.from + quoteInfo.prefix.length + parsed.indentRaw.length;
+                const markerPos = line.from + parsed.quotePrefix.length + parsed.indentRaw.length;
                 const coords = view.coordsAtPos(markerPos);
                 return coords ? coords.left : null;
             }
 
+            // Indent utils
             estimateIndentPixels(view: EditorView, indentWidth: number): number {
-                const tabSize = view.state.facet(EditorState.tabSize) || 4;
                 const charWidth = view.defaultCharacterWidth || 7;
                 return indentWidth * charWidth;
             }
@@ -964,7 +991,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 const slots: Array<{ x: number; lineNumber: number; indentWidth: number; mode: 'child' | 'same' }> = [];
 
                 const baseIndent = this.getListIndentWidthAtLine(doc, lineNumber);
-                const indentUnit = this.getIndentUnitWidthFromDoc(doc, view.state) ?? view.state.facet(EditorState.tabSize) ?? 4;
+                const indentUnit = this.getIndentUnitWidthForDoc(doc, view.state);
                 const maxIndent = typeof baseIndent === 'number' ? baseIndent + indentUnit : undefined;
                 if (typeof baseIndent === 'number') {
                     slots.push({ x: bounds.markerStartX, lineNumber, indentWidth: baseIndent, mode: 'same' });
@@ -1007,10 +1034,9 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             getListMarkerBounds(view: EditorView, lineNumber: number): { markerStartX: number; contentStartX: number } | null {
                 if (lineNumber < 1 || lineNumber > view.state.doc.lines) return null;
                 const line = view.state.doc.line(lineNumber);
-                const quoteInfo = this.splitBlockquotePrefix(line.text);
-                const parsed = this.parseListLine(quoteInfo.rest);
+                const parsed = this.parseLineWithQuote(line.text);
                 if (!parsed.isListItem) return null;
-                const markerStartPos = line.from + quoteInfo.prefix.length + parsed.indentRaw.length;
+                const markerStartPos = line.from + parsed.quotePrefix.length + parsed.indentRaw.length;
                 const markerEndPos = markerStartPos + parsed.marker.length;
                 const start = view.coordsAtPos(markerStartPos);
                 const end = view.coordsAtPos(markerEndPos);
@@ -1021,7 +1047,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             getListIndentWidthAtLine(doc: { line: (n: number) => { text: string }; lines: number }, lineNumber: number): number | undefined {
                 if (lineNumber < 1 || lineNumber > doc.lines) return undefined;
                 const text = doc.line(lineNumber).text;
-                const parsed = this.parseListLine(this.splitBlockquotePrefix(text).rest);
+                const parsed = this.parseLineWithQuote(text);
                 if (!parsed.isListItem) return undefined;
                 return parsed.indentWidth;
             }
@@ -1033,7 +1059,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 for (let i = lineNumber; i >= 1; i--) {
                     const text = doc.line(i).text;
                     if (text.trim().length === 0) continue;
-                    const parsed = this.parseListLine(this.splitBlockquotePrefix(text).rest);
+                    const parsed = this.parseLineWithQuote(text);
                     if (!parsed.isListItem) {
                         if (currentIndent !== null) break;
                         continue;
@@ -1071,7 +1097,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 for (let i = startLineNumber; i >= 1; i--) {
                     const text = doc.line(i).text;
                     if (text.trim().length === 0) continue;
-                    const parsed = this.parseListLine(this.splitBlockquotePrefix(text).rest);
+                    const parsed = this.parseLineWithQuote(text);
                     if (!parsed.isListItem) continue;
                     if (parsed.indentWidth === targetIndent) return i;
                 }
@@ -1082,19 +1108,18 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 const doc = view.state.doc;
                 if (lineNumber < 1 || lineNumber > doc.lines) return undefined;
                 const text = doc.line(lineNumber).text;
-                const parsed = this.parseListLine(this.splitBlockquotePrefix(text).rest);
+                const parsed = this.parseLineWithQuote(text);
                 if (!parsed.isListItem) return undefined;
                 const parentIndent = parsed.indentWidth;
                 for (let i = lineNumber + 1; i <= doc.lines; i++) {
                     const nextText = doc.line(i).text;
                     if (nextText.trim().length === 0) continue;
-                    const nextParsed = this.parseListLine(this.splitBlockquotePrefix(nextText).rest);
+                    const nextParsed = this.parseLineWithQuote(nextText);
                     if (!nextParsed.isListItem) break;
                     if (nextParsed.indentWidth <= parentIndent) break;
                     return nextParsed.indentWidth;
                 }
-                const tabSize = view.state.facet(EditorState.tabSize);
-                const indentUnit = tabSize > 0 ? tabSize : 4;
+                const indentUnit = this.getIndentUnitWidthForDoc(doc, view.state);
                 return parentIndent + indentUnit;
             }
 
@@ -1143,13 +1168,13 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 if (lineNumber < 1 || lineNumber > doc.lines) return null;
 
                 const currentLine = doc.line(blockAtPos.startLine + 1).text;
-                const currentParsed = this.parseListLine(this.splitBlockquotePrefix(currentLine).rest);
+                const currentParsed = this.parseLineWithQuote(currentLine);
                 if (!currentParsed.isListItem) return null;
                 const currentIndent = currentParsed.indentWidth;
 
                 for (let i = blockAtPos.startLine + 1; i >= 1; i--) {
                     const text = doc.line(i).text;
-                    const parsed = this.parseListLine(this.splitBlockquotePrefix(text).rest);
+                    const parsed = this.parseLineWithQuote(text);
                     if (!parsed.isListItem) continue;
                     if (parsed.indentWidth >= currentIndent) continue;
 
@@ -1167,7 +1192,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
                 for (let i = 1; i <= doc.lines; i++) {
                     const text = doc.line(i).text;
-                    const parsed = this.parseListLine(this.splitBlockquotePrefix(text).rest);
+                    const parsed = this.parseLineWithQuote(text);
                     if (!parsed.isListItem) continue;
                     if (prevIndent !== null && parsed.indentWidth > prevIndent) {
                         const delta = parsed.indentWidth - prevIndent;
@@ -1184,6 +1209,13 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     return undefined;
                 }
                 return Math.max(2, best);
+            }
+
+            getIndentUnitWidthForDoc(doc: { line: (n: number) => { text: string }; lines: number }, state?: EditorState): number {
+                const fromDoc = this.getIndentUnitWidthFromDoc(doc, state);
+                if (typeof fromDoc === 'number') return fromDoc;
+                const tabSize = state?.facet(EditorState.tabSize) ?? this.getTabSize();
+                return tabSize > 0 ? tabSize : 4;
             }
 
 
@@ -1234,10 +1266,9 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
                 const findOrderedAt = (n: number) => {
                     const text = doc.line(n).text;
-                    const quoteInfo = this.splitBlockquotePrefix(text);
-                    const parsed = this.parseListLine(quoteInfo.rest);
+                    const parsed = this.parseLineWithQuote(text);
                     if (parsed.isListItem && parsed.markerType === 'ordered') {
-                        return { indentWidth: parsed.indentWidth, quoteDepth: this.getBlockquoteDepthFromLine(text) };
+                        return { indentWidth: parsed.indentWidth, quoteDepth: parsed.quoteDepth };
                     }
                     return null;
                 };
@@ -1265,12 +1296,11 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 let number = 1;
                 for (let i = start; i <= end; i++) {
                     const line = doc.line(i);
-                    const quoteInfo = this.splitBlockquotePrefix(line.text);
-                    const parsed = this.parseListLine(quoteInfo.rest);
+                    const parsed = this.parseLineWithQuote(line.text);
                     if (!parsed.isListItem || parsed.markerType !== 'ordered' || parsed.indentWidth !== anchor.indentWidth) continue;
 
                     const newMarker = `${number}. `;
-                    const markerStart = line.from + quoteInfo.prefix.length + parsed.indentRaw.length;
+                    const markerStart = line.from + parsed.quotePrefix.length + parsed.indentRaw.length;
                     const markerEnd = markerStart + parsed.marker.length;
                     changes.push({ from: markerStart, to: markerEnd, insert: newMarker });
                     number += 1;
@@ -1279,6 +1309,200 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 if (changes.length > 0) {
                     view.dispatch({ changes });
                 }
+            }
+
+            computeVerticalTarget(
+                view: EditorView,
+                info: { clientX: number; clientY: number }
+            ): {
+                line: { number: number; text: string; from: number; to: number };
+                targetLineNumber: number;
+                forcedLineNumber: number | null;
+                childIntentOnLine: boolean;
+                lineRectSourceLineNumber: number;
+            } | null {
+                const contentRect = view.contentDOM.getBoundingClientRect();
+                const x = this.clampNumber(info.clientX, contentRect.left + 2, contentRect.right - 2);
+                const pos = view.posAtCoords({ x, y: info.clientY });
+                if (pos === null) return null;
+
+                const height = this.clampNumber(info.clientY - view.documentTop, 0, view.contentHeight);
+                const lineBlock = view.lineBlockAtHeight(height);
+                let line = view.state.doc.lineAt(lineBlock.from);
+
+                const lineBoundsForSnap = this.getListMarkerBounds(view, line.number);
+                const lineParsedForSnap = this.parseLineWithQuote(line.text);
+                const childIntentOnLine = !!lineBoundsForSnap
+                    && lineParsedForSnap.isListItem
+                    && info.clientX >= lineBoundsForSnap.contentStartX + 2;
+
+                const adjustedTarget = this.getAdjustedTargetLocation(view, line.number, { clientY: info.clientY });
+                let forcedLineNumber: number | null = adjustedTarget.blockAdjusted ? adjustedTarget.lineNumber : null;
+
+                let showAtBottom = false;
+                if (!forcedLineNumber) {
+                    const isBlankLine = line.text.trim().length === 0;
+                    showAtBottom = !isBlankLine;
+                    if (isBlankLine) {
+                        forcedLineNumber = line.number;
+                    } else {
+                        const lineStart = view.coordsAtPos(line.from);
+                        const lineEnd = view.coordsAtPos(line.to);
+                        if (lineStart && lineEnd) {
+                            const midY = (lineStart.top + lineEnd.bottom) / 2;
+                            showAtBottom = info.clientY > midY;
+                        }
+                    }
+                }
+
+                let targetLineNumber = this.clampTargetLineNumber(
+                    view.state.doc.lines,
+                    forcedLineNumber ?? (showAtBottom ? line.number + 1 : line.number)
+                );
+                if (!forcedLineNumber && childIntentOnLine && !showAtBottom) {
+                    targetLineNumber = this.clampTargetLineNumber(view.state.doc.lines, line.number + 1);
+                }
+
+                return {
+                    line,
+                    targetLineNumber,
+                    forcedLineNumber,
+                    childIntentOnLine,
+                    lineRectSourceLineNumber: line.number,
+                };
+            }
+
+            computeHighlightRectForList(
+                view: EditorView,
+                params: { targetLineNumber: number; listTargetIndentWidth: number; indentUnit: number }
+            ): { highlightRect?: { top: number; left: number; width: number; height: number }; lineRectSourceLineNumber?: number } {
+                const { targetLineNumber, listTargetIndentWidth, indentUnit } = params;
+                if (listTargetIndentWidth <= 0) return {};
+
+                const targetParentIndent = listTargetIndentWidth - indentUnit;
+                const parentLineNumber = this.findParentLineNumberByIndent(
+                    view.state.doc,
+                    targetLineNumber - 1,
+                    targetParentIndent
+                );
+                if (parentLineNumber === null) return {};
+
+                const highlightBlock = detectBlock(view.state, parentLineNumber);
+                if (!highlightBlock || highlightBlock.type !== BlockType.ListItem) return {};
+
+                const lineRectSourceLineNumber = highlightBlock.startLine + 1;
+                const blockStartLineNumber = highlightBlock.startLine + 1;
+                const blockEndLineNumber = highlightBlock.endLine + 1;
+                const bounds = this.getListMarkerBounds(view, blockStartLineNumber);
+                const startLineObj = view.state.doc.line(blockStartLineNumber);
+                const endLineObj = view.state.doc.line(blockEndLineNumber);
+                const startCoords = view.coordsAtPos(startLineObj.from);
+                const endCoords = view.coordsAtPos(endLineObj.to);
+                if (bounds && startCoords && endCoords) {
+                    const left = bounds.markerStartX;
+                    let maxRight = left;
+                    for (let i = blockStartLineNumber; i <= blockEndLineNumber; i++) {
+                        const lineObj = view.state.doc.line(i);
+                        const lineEndCoords = view.coordsAtPos(lineObj.to);
+                        if (!lineEndCoords) continue;
+                        const right = lineEndCoords.right ?? lineEndCoords.left;
+                        if (right > maxRight) {
+                            maxRight = right;
+                        }
+                    }
+                    const width = Math.max(8, maxRight - left);
+                    return {
+                        lineRectSourceLineNumber,
+                        highlightRect: {
+                            top: startCoords.top,
+                            left,
+                            width,
+                            height: Math.max(4, endCoords.bottom - startCoords.top),
+                        },
+                    };
+                }
+
+                return {
+                    lineRectSourceLineNumber,
+                    highlightRect: this.getBlockRect(view, blockStartLineNumber, blockEndLineNumber),
+                };
+            }
+
+            computeListTarget(
+                view: EditorView,
+                params: {
+                    targetLineNumber: number;
+                    lineNumber: number;
+                    forcedLineNumber: number | null;
+                    childIntentOnLine: boolean;
+                    dragSource: BlockInfo | null;
+                    clientX: number;
+                }
+            ): {
+                listContextLineNumber?: number;
+                listIndentDelta?: number;
+                listTargetIndentWidth?: number;
+                highlightRect?: { top: number; left: number; width: number; height: number };
+                lineRectSourceLineNumber?: number;
+            } {
+                const { targetLineNumber, lineNumber, forcedLineNumber, childIntentOnLine, dragSource, clientX } = params;
+                const doc = view.state.doc;
+                const prevNonEmptyLineNumber = this.getPreviousNonEmptyLineNumber(doc, targetLineNumber - 1);
+                let referenceLineNumber = prevNonEmptyLineNumber ?? 0;
+                if (!forcedLineNumber && childIntentOnLine) {
+                    referenceLineNumber = lineNumber;
+                }
+                if (referenceLineNumber < 1) return {};
+
+                const referenceBlock = detectBlock(view.state, referenceLineNumber);
+                if (!referenceBlock || referenceBlock.type !== BlockType.ListItem) return {};
+
+                const baseLineNumber = referenceBlock.startLine + 1;
+                const isSelfTarget = !!dragSource
+                    && dragSource.type === BlockType.ListItem
+                    && baseLineNumber === dragSource.startLine + 1;
+                const allowChild = !isSelfTarget;
+                const dropTarget = this.getListDropTarget(view, baseLineNumber, clientX, allowChild);
+                if (!dropTarget) return {};
+
+                let listContextLineNumber = dropTarget.lineNumber;
+                let listIndentDelta = dropTarget.mode === 'child' ? 1 : 0;
+                let cappedIndentWidth = dropTarget.indentWidth;
+
+                const indentUnit = this.getIndentUnitWidthForDoc(doc, view.state);
+                const prevIndent = this.getListIndentWidthAtLine(doc, baseLineNumber);
+                if (typeof prevIndent === 'number') {
+                    const maxAllowedIndent = prevIndent + indentUnit;
+                    if (cappedIndentWidth > maxAllowedIndent) {
+                        cappedIndentWidth = maxAllowedIndent;
+                    }
+                }
+
+                const nextLineNumber = targetLineNumber <= doc.lines ? targetLineNumber : null;
+                if (nextLineNumber !== null) {
+                    const nextIndent = this.getListIndentWidthAtLine(doc, nextLineNumber);
+                    if (typeof nextIndent === 'number') {
+                        const minAllowedIndent = Math.max(0, nextIndent - indentUnit);
+                        if (cappedIndentWidth < minAllowedIndent) {
+                            cappedIndentWidth = minAllowedIndent;
+                        }
+                    }
+                }
+
+                const listTargetIndentWidth = cappedIndentWidth;
+                const highlightInfo = this.computeHighlightRectForList(view, {
+                    targetLineNumber,
+                    listTargetIndentWidth,
+                    indentUnit,
+                });
+
+                return {
+                    listContextLineNumber,
+                    listIndentDelta,
+                    listTargetIndentWidth,
+                    highlightRect: highlightInfo.highlightRect,
+                    lineRectSourceLineNumber: highlightInfo.lineRectSourceLineNumber,
+                };
             }
 
             getDropTargetInfo(
@@ -1306,155 +1530,25 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     }
                 }
 
-                const contentRect = view.contentDOM.getBoundingClientRect();
-                const x = this.clampNumber(info.clientX, contentRect.left + 2, contentRect.right - 2);
-                const pos = view.posAtCoords({ x, y: info.clientY });
-                if (pos === null) return null;
+                const vertical = this.computeVerticalTarget(view, info);
+                if (!vertical) return null;
 
-                const height = this.clampNumber(info.clientY - view.documentTop, 0, view.contentHeight);
-                const lineBlock = view.lineBlockAtHeight(height);
-                let line = view.state.doc.lineAt(lineBlock.from);
-                let showAtBottom = false;
-                let forcedLineNumber: number | null = null;
-                const lineBoundsForSnap = this.getListMarkerBounds(view, line.number);
-                const lineParsedForSnap = this.parseListLine(this.splitBlockquotePrefix(line.text).rest);
-                let childIntentOnLine = false;
-                if (lineBoundsForSnap && lineParsedForSnap.isListItem) {
-                    const indentUnit = this.getIndentUnitWidthFromDoc(view.state.doc, view.state) ?? 4;
-                    const indentPixels = this.estimateIndentPixels(view, indentUnit);
-                    if (info.clientX >= lineBoundsForSnap.markerStartX + (indentPixels * 0.5)) {
-                        childIntentOnLine = true;
-                    }
-                }
+                const listTarget = this.computeListTarget(view, {
+                    targetLineNumber: vertical.targetLineNumber,
+                    lineNumber: vertical.line.number,
+                    forcedLineNumber: vertical.forcedLineNumber,
+                    childIntentOnLine: vertical.childIntentOnLine,
+                    dragSource,
+                    clientX: info.clientX,
+                });
 
-                const adjustedTarget = this.getAdjustedTargetLocation(view, line.number, { clientY: info.clientY });
-                if (adjustedTarget.blockAdjusted) {
-                    forcedLineNumber = adjustedTarget.lineNumber;
-                }
-
-                if (!forcedLineNumber) {
-                    const isBlankLine = line.text.trim().length === 0;
-                    showAtBottom = !isBlankLine;
-                    if (isBlankLine) {
-                        forcedLineNumber = line.number;
-                    } else {
-                        const lineStart = view.coordsAtPos(line.from);
-                        const lineEnd = view.coordsAtPos(line.to);
-                        if (lineStart && lineEnd) {
-                            const midY = (lineStart.top + lineEnd.bottom) / 2;
-                            showAtBottom = info.clientY > midY;
-                        }
-                    }
-                }
-
-                let targetLineNumber = this.clampTargetLineNumber(
-                    view.state.doc.lines,
-                    forcedLineNumber ?? (showAtBottom ? line.number + 1 : line.number)
-                );
-                if (!forcedLineNumber && childIntentOnLine && !showAtBottom) {
-                    targetLineNumber = this.clampTargetLineNumber(view.state.doc.lines, line.number + 1);
-                }
-
-                let listContextLineNumber: number | undefined = undefined;
-                let listIndentDelta: number | undefined = undefined;
-                let listTargetIndentWidth: number | undefined = undefined;
-                let highlightRect: { top: number; left: number; width: number; height: number } | undefined = undefined;
-                let lineRectSourceLineNumber: number = line.number;
-
-                const prevNonEmptyLineNumber = this.getPreviousNonEmptyLineNumber(view.state.doc, targetLineNumber - 1);
-                let referenceLineNumber = prevNonEmptyLineNumber ?? 0;
-                if (!forcedLineNumber && childIntentOnLine) {
-                    referenceLineNumber = line.number;
-                }
-                if (referenceLineNumber >= 1) {
-                    const referenceBlock = detectBlock(view.state, referenceLineNumber);
-                    if (referenceBlock && referenceBlock.type === BlockType.ListItem) {
-                        const baseLineNumber = referenceBlock.startLine + 1;
-                        const isSelfTarget = !!dragSource
-                            && dragSource.type === BlockType.ListItem
-                            && baseLineNumber === dragSource.startLine + 1;
-                        const allowChild = !isSelfTarget;
-                        const dropTarget = this.getListDropTarget(view, baseLineNumber, info.clientX, allowChild);
-                        if (dropTarget) {
-                            listContextLineNumber = dropTarget.lineNumber;
-                            listIndentDelta = dropTarget.mode === 'child' ? 1 : 0;
-                            let cappedIndentWidth = dropTarget.indentWidth;
-                            const indentUnit = this.getIndentUnitWidthFromDoc(view.state.doc, view.state)
-                                ?? view.state.facet(EditorState.tabSize)
-                                ?? 4;
-                            const prevIndent = this.getListIndentWidthAtLine(view.state.doc, baseLineNumber);
-                            if (typeof prevIndent === 'number') {
-                                const maxAllowedIndent = prevIndent + indentUnit;
-                                if (cappedIndentWidth > maxAllowedIndent) {
-                                    cappedIndentWidth = maxAllowedIndent;
-                                }
-                            }
-
-                            const nextLineNumber = targetLineNumber <= view.state.doc.lines ? targetLineNumber : null;
-                            if (nextLineNumber !== null) {
-                                const nextIndent = this.getListIndentWidthAtLine(view.state.doc, nextLineNumber);
-                                if (typeof nextIndent === 'number') {
-                                    const minAllowedIndent = Math.max(0, nextIndent - indentUnit);
-                                    if (cappedIndentWidth < minAllowedIndent) {
-                                        cappedIndentWidth = minAllowedIndent;
-                                    }
-                                }
-                            }
-
-                            listTargetIndentWidth = cappedIndentWidth;
-
-                            if (listTargetIndentWidth > 0) {
-                                const targetParentIndent = listTargetIndentWidth - indentUnit;
-                                const parentLineNumber = this.findParentLineNumberByIndent(
-                                    view.state.doc,
-                                    targetLineNumber - 1,
-                                    targetParentIndent
-                                );
-                                if (parentLineNumber !== null) {
-                                    const highlightBlock = detectBlock(view.state, parentLineNumber);
-                                    if (highlightBlock && highlightBlock.type === BlockType.ListItem) {
-                                        lineRectSourceLineNumber = highlightBlock.startLine + 1;
-                                        const blockStartLineNumber = highlightBlock.startLine + 1;
-                                        const blockEndLineNumber = highlightBlock.endLine + 1;
-                                        const bounds = this.getListMarkerBounds(view, blockStartLineNumber);
-                                        const startLineObj = view.state.doc.line(blockStartLineNumber);
-                                        const endLineObj = view.state.doc.line(blockEndLineNumber);
-                                        const startCoords = view.coordsAtPos(startLineObj.from);
-                                        const endCoords = view.coordsAtPos(endLineObj.to);
-                                        if (bounds && startCoords && endCoords) {
-                                            const left = bounds.markerStartX;
-                                            let maxRight = left;
-                                            for (let i = blockStartLineNumber; i <= blockEndLineNumber; i++) {
-                                                const lineObj = view.state.doc.line(i);
-                                                const lineEndCoords = view.coordsAtPos(lineObj.to);
-                                                if (!lineEndCoords) continue;
-                                                const right = lineEndCoords.right ?? lineEndCoords.left;
-                                                if (right > maxRight) {
-                                                    maxRight = right;
-                                                }
-                                            }
-                                            const width = Math.max(8, maxRight - left);
-                                            highlightRect = {
-                                                top: startCoords.top,
-                                                left,
-                                                width,
-                                                height: Math.max(4, endCoords.bottom - startCoords.top),
-                                            };
-                                        } else {
-                                            highlightRect = this.getBlockRect(view, blockStartLineNumber, blockEndLineNumber);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                const indicatorY = this.getInsertionAnchorY(view, targetLineNumber);
+                const indicatorY = this.getInsertionAnchorY(view, vertical.targetLineNumber);
                 if (indicatorY === null) return null;
+
+                const lineRectSourceLineNumber = listTarget.lineRectSourceLineNumber ?? vertical.lineRectSourceLineNumber;
                 let lineRect = this.getLineRect(view, lineRectSourceLineNumber);
-                if (typeof listTargetIndentWidth === 'number') {
-                    const indentPos = this.getLineIndentPosByWidth(view, lineRectSourceLineNumber, listTargetIndentWidth);
+                if (typeof listTarget.listTargetIndentWidth === 'number') {
+                    const indentPos = this.getLineIndentPosByWidth(view, lineRectSourceLineNumber, listTarget.listTargetIndentWidth);
                     if (indentPos !== null) {
                         const start = view.coordsAtPos(indentPos);
                         const end = view.coordsAtPos(view.state.doc.line(lineRectSourceLineNumber).to);
@@ -1466,13 +1560,13 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     }
                 }
                 return {
-                    lineNumber: targetLineNumber,
+                    lineNumber: vertical.targetLineNumber,
                     indicatorY,
-                    listContextLineNumber,
-                    listIndentDelta,
-                    listTargetIndentWidth,
+                    listContextLineNumber: listTarget.listContextLineNumber,
+                    listIndentDelta: listTarget.listIndentDelta,
+                    listTargetIndentWidth: listTarget.listTargetIndentWidth,
                     lineRect,
-                    highlightRect,
+                    highlightRect: listTarget.highlightRect,
                 };
             }
 
