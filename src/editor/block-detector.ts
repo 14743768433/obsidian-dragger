@@ -370,59 +370,70 @@ function getBlockquoteSubtreeRange(doc: Text, lineNumber: number): { startLine: 
     return { startLine: lineNumber, endLine };
 }
 
-function getMathRangeFromStart(doc: Text, startLine: number): { startLine: number; endLine: number } | null {
-    const startText = doc.line(startLine).text.trimStart();
-    if (!startText.startsWith('$$')) return null;
-    const rest = startText.slice(2);
-    if (rest.includes('$$')) {
-        return { startLine, endLine: startLine };
-    }
-
-    for (let i = startLine + 1; i <= doc.lines; i++) {
-        const nextLine = doc.line(i);
-        if (isMathFenceLine(nextLine.text)) {
-            return { startLine, endLine: i };
-        }
-    }
-
-    return null;
-}
-
-function getCodeBlockRangeFromStart(doc: Text, startLine: number): { startLine: number; endLine: number } | null {
-    const startText = doc.line(startLine).text.trimStart();
-    if (!startText.startsWith('```')) return null;
-
-    for (let i = startLine + 1; i <= doc.lines; i++) {
-        const nextLine = doc.line(i);
-        if (isCodeFenceLine(nextLine.text)) {
-            return { startLine, endLine: i };
-        }
-    }
-
-    return { startLine, endLine: startLine };
+function isSingleLineMathFence(lineText: string): boolean {
+    const trimmed = lineText.trimStart();
+    if (!trimmed.startsWith('$$')) return false;
+    return trimmed.slice(2).includes('$$');
 }
 
 function findMathBlockRange(doc: Text, lineNumber: number): { startLine: number; endLine: number } | null {
-    for (let i = lineNumber; i >= 1; i--) {
-        const line = doc.line(i);
-        if (!isMathFenceLine(line.text)) continue;
-        const range = getMathRangeFromStart(doc, i);
-        if (!range) return null;
-        if (lineNumber <= range.endLine) return range;
-        return null;
+    let startLine: number | null = null;
+
+    for (let i = 1; i <= doc.lines; i++) {
+        if (i > lineNumber && startLine === null) {
+            return null;
+        }
+
+        const text = doc.line(i).text;
+        if (!isMathFenceLine(text)) continue;
+
+        if (startLine === null) {
+            if (isSingleLineMathFence(text)) {
+                if (lineNumber === i) {
+                    return { startLine: i, endLine: i };
+                }
+                continue;
+            }
+            startLine = i;
+            continue;
+        }
+
+        const range = { startLine, endLine: i };
+        if (lineNumber >= range.startLine && lineNumber <= range.endLine) {
+            return range;
+        }
+        startLine = null;
     }
 
     return null;
 }
 
 function findCodeBlockRange(doc: Text, lineNumber: number): { startLine: number; endLine: number } | null {
-    for (let i = lineNumber; i >= 1; i--) {
-        const line = doc.line(i);
-        if (!isCodeFenceLine(line.text)) continue;
-        const range = getCodeBlockRangeFromStart(doc, i);
-        if (!range) return null;
-        if (lineNumber <= range.endLine) return range;
-        return null;
+    let startLine: number | null = null;
+
+    for (let i = 1; i <= doc.lines; i++) {
+        if (i > lineNumber && startLine === null) {
+            return null;
+        }
+
+        const text = doc.line(i).text;
+        if (!isCodeFenceLine(text)) continue;
+
+        if (startLine === null) {
+            startLine = i;
+            continue;
+        }
+
+        const range = { startLine, endLine: i };
+        if (lineNumber >= range.startLine && lineNumber <= range.endLine) {
+            return range;
+        }
+        startLine = null;
+    }
+
+    // 与原行为保持一致：未闭合 fence 仅将起始 fence 行视为代码块
+    if (startLine !== null && lineNumber === startLine) {
+        return { startLine, endLine: startLine };
     }
 
     return null;

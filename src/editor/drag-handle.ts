@@ -10,6 +10,16 @@ import {
 import { detectBlock, detectBlockType, getListItemOwnRangeForHandle } from './block-detector';
 import { BlockType, BlockInfo, DragState } from '../types';
 import DragNDropPlugin from '../main';
+import {
+    ROOT_EDITOR_CLASS,
+    EMBED_BLOCK_SELECTOR,
+    setActiveDragSourceBlock,
+    getActiveDragSourceBlock,
+    clearActiveDragSourceBlock,
+    hideDropVisuals,
+    isPosInsideRenderedTableCell,
+    isPointInsideRenderedTableCell,
+} from './drag-handle-shared';
 
 type EmbedHandleEntry = {
     handle: HTMLElement;
@@ -32,6 +42,7 @@ interface ParsedLine {
 
 function startDragWithBlockInfo(e: DragEvent, blockInfo: BlockInfo, handle?: HTMLElement | null): void {
     if (!e.dataTransfer) return;
+    setActiveDragSourceBlock(blockInfo);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', blockInfo.content);
     e.dataTransfer.setData('application/dnd-block', JSON.stringify(blockInfo));
@@ -57,13 +68,11 @@ function startDragWithBlockInfo(e: DragEvent, blockInfo: BlockInfo, handle?: HTM
 class DragHandleWidget extends WidgetType {
     private blockInfo: BlockInfo;
     private view: EditorView;
-    private plugin: DragNDropPlugin;
 
-    constructor(blockInfo: BlockInfo, view: EditorView, plugin: DragNDropPlugin) {
+    constructor(blockInfo: BlockInfo, view: EditorView) {
         super();
         this.blockInfo = blockInfo;
         this.view = view;
-        this.plugin = plugin;
     }
 
     toDOM(): HTMLElement {
@@ -93,14 +102,17 @@ class DragHandleWidget extends WidgetType {
     }
 
     private onDragStart(e: DragEvent): void {
+        if (isPosInsideRenderedTableCell(this.view, this.blockInfo.from)) {
+            e.preventDefault();
+            return;
+        }
         startDragWithBlockInfo(e, this.blockInfo, e.currentTarget as HTMLElement | null);
     }
 
     private onDragEnd(e: DragEvent): void {
+        clearActiveDragSourceBlock();
         document.body.classList.remove('dnd-dragging');
-        // 清理放置指示器（仅隐藏，保留复用）
-        document.querySelectorAll<HTMLElement>('.dnd-drop-indicator').forEach(el => { el.style.display = 'none'; });
-        document.querySelectorAll<HTMLElement>('.dnd-drop-highlight').forEach(el => { el.style.display = 'none'; });
+        hideDropVisuals();
     }
 
     eq(other: DragHandleWidget): boolean {
@@ -121,7 +133,6 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
         class {
             decorations: DecorationSet;
             observer: MutationObserver;
-            plugin: DragNDropPlugin;
             view: EditorView;
             embedHandles: Map<HTMLElement, EmbedHandleEntry>;
             indicatorEl: HTMLDivElement;
@@ -135,7 +146,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
             constructor(view: EditorView) {
                 this.view = view;
-                this.plugin = plugin;
+                this.view.dom.classList.add(ROOT_EDITOR_CLASS);
                 this.embedHandles = new Map();
                 this.lastDropTargetLineNumber = null;
                 this.indicatorEl = document.createElement('div');
@@ -193,8 +204,15 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
                         const block = detectBlock(view.state, lineNumber);
                         if (block) {
+                            if (isPosInsideRenderedTableCell(view, line.from)) {
+                                for (let i = block.startLine; i <= block.endLine; i++) {
+                                    processedLines.add(i + 1);
+                                }
+                                pos = line.to + 1;
+                                continue;
+                            }
                             // 在块的起始行添加拖拽手柄
-                            const widget = new DragHandleWidget(block, view, plugin);
+                            const widget = new DragHandleWidget(block, view);
                             decorations.push(
                                 Decoration.widget({
                                     widget,
@@ -251,7 +269,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
             addHandlesToEmbedBlocks(view: EditorView) {
                 // 扩展选择器以支持更多类型
-                const embeds = view.dom.querySelectorAll('.cm-embed-block, .cm-callout, .cm-preview-code-block, .cm-math, .MathJax_Display');
+                const embeds = view.dom.querySelectorAll(EMBED_BLOCK_SELECTOR);
 
                 const handled = new Set<HTMLElement>();
 
@@ -418,13 +436,17 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                         e.preventDefault();
                         return;
                     }
+                    if (isPosInsideRenderedTableCell(view, blockInfo.from)) {
+                        e.preventDefault();
+                        return;
+                    }
                     startDragWithBlockInfo(e, blockInfo, handle);
                 });
 
                 handle.addEventListener('dragend', (e) => {
+                    clearActiveDragSourceBlock();
                     document.body.classList.remove('dnd-dragging');
-                    document.querySelectorAll<HTMLElement>('.dnd-drop-indicator').forEach(el => { el.style.display = 'none'; });
-                    document.querySelectorAll<HTMLElement>('.dnd-drop-highlight').forEach(el => { el.style.display = 'none'; });
+                    hideDropVisuals();
                 });
 
                 return handle;
@@ -507,6 +529,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                         targetInfo?.listTargetIndentWidth
                     );
                     this.hideDropIndicator();
+                    clearActiveDragSourceBlock();
                 }, true);
             }
 
@@ -592,6 +615,9 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 }
 
                 targetLineNumber = this.clampTargetLineNumber(doc.lines, targetLineNumber);
+                if (this.shouldPreventDropIntoDifferentContainer(view, sourceBlock, targetLineNumber)) {
+                    return;
+                }
 
                 // 转换为0-indexed
                 const targetLineIdx = targetLineNumber - 1;
@@ -726,16 +752,21 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 const nextText = targetLineNumber <= doc.lines ? doc.line(targetLineNumber).text : null;
 
                 let text = sourceContent;
-                const targetQuoteDepth = this.getBlockquoteDepthContext(doc, targetLineNumber);
-                const sourceQuoteDepth = this.getContentQuoteDepth(sourceContent);
-                const isBlockquoteDrag = sourceBlock.type === BlockType.Blockquote;
-                // Only reduce effective depth if we are moving "OUT" (to a shallower context)
-                // to preserve the block's own structure. If moving "IN" or "SIDEWAYS", 
-                // use standard logic to avoid double-nesting.
-                const effectiveSourceDepth = (isBlockquoteDrag && targetQuoteDepth < sourceQuoteDepth)
-                    ? Math.max(0, sourceQuoteDepth - 1)
-                    : sourceQuoteDepth;
-                text = this.adjustBlockquoteDepth(text, targetQuoteDepth, effectiveSourceDepth);
+                const shouldLockQuoteDepth = sourceBlock.type === BlockType.CodeBlock
+                    || sourceBlock.type === BlockType.Table
+                    || sourceBlock.type === BlockType.MathBlock;
+                if (!shouldLockQuoteDepth) {
+                    const targetQuoteDepth = this.getBlockquoteDepthContext(doc, targetLineNumber);
+                    const sourceQuoteDepth = this.getContentQuoteDepth(sourceContent);
+                    const isBlockquoteDrag = sourceBlock.type === BlockType.Blockquote;
+                    // Only reduce effective depth if we are moving "OUT" (to a shallower context)
+                    // to preserve the block's own structure. If moving "IN" or "SIDEWAYS",
+                    // use standard logic to avoid double-nesting.
+                    const effectiveSourceDepth = (isBlockquoteDrag && targetQuoteDepth < sourceQuoteDepth)
+                        ? Math.max(0, sourceQuoteDepth - 1)
+                        : sourceQuoteDepth;
+                    text = this.adjustBlockquoteDepth(text, targetQuoteDepth, effectiveSourceDepth);
+                }
                 text = this.adjustListToTargetContext(
                     doc,
                     text,
@@ -1111,6 +1142,174 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 return null;
             }
 
+            getNextNonEmptyLineNumber(doc: { line: (n: number) => { text: string }; lines: number }, lineNumber: number): number | null {
+                for (let i = lineNumber; i <= doc.lines; i++) {
+                    const text = doc.line(i).text;
+                    if (text.trim().length === 0) continue;
+                    return i;
+                }
+                return null;
+            }
+
+            getContainerTypeForBlock(view: EditorView, block: BlockInfo): BlockType.ListItem | BlockType.Blockquote | BlockType.Callout | null {
+                if (block.type === BlockType.ListItem) return BlockType.ListItem;
+                if (block.type === BlockType.Callout) return BlockType.Callout;
+                if (block.type !== BlockType.Blockquote) return null;
+
+                const startLineText = view.state.doc.line(block.startLine + 1).text.trimStart();
+                if (/^(\s*> ?)+\s*\[!/.test(startLineText)) return BlockType.Callout;
+                return BlockType.Blockquote;
+            }
+
+            getSourceContainerType(sourceBlock: BlockInfo): BlockType.ListItem | BlockType.Blockquote | BlockType.Callout | null {
+                if (sourceBlock.type === BlockType.ListItem) return BlockType.ListItem;
+                if (sourceBlock.type === BlockType.Callout) return BlockType.Callout;
+                if (sourceBlock.type !== BlockType.Blockquote) return null;
+
+                const firstLine = sourceBlock.content.split('\n', 1)[0]?.trimStart() ?? '';
+                if (/^(\s*> ?)+\s*\[!/.test(firstLine)) return BlockType.Callout;
+                return BlockType.Blockquote;
+            }
+
+            buildSyntheticLineBlock(view: EditorView, lineNumber: number, type: BlockType): BlockInfo {
+                const lineObj = view.state.doc.line(lineNumber);
+                return {
+                    type,
+                    startLine: lineNumber - 1,
+                    endLine: lineNumber - 1,
+                    from: lineObj.from,
+                    to: lineObj.to,
+                    indentLevel: 0,
+                    content: lineObj.text,
+                };
+            }
+
+            findEnclosingListBlock(view: EditorView, lineNumber: number): BlockInfo | null {
+                const doc = view.state.doc;
+                if (lineNumber < 1 || lineNumber > doc.lines) return null;
+
+                const radius = 8;
+                const minLine = Math.max(1, lineNumber - radius);
+                const maxLine = Math.min(doc.lines, lineNumber + radius);
+                let best: BlockInfo | null = null;
+
+                for (let ln = minLine; ln <= maxLine; ln++) {
+                    const block = detectBlock(view.state, ln);
+                    if (!block || block.type !== BlockType.ListItem) continue;
+                    const blockStart = block.startLine + 1;
+                    const blockEnd = block.endLine + 1;
+                    if (lineNumber < blockStart || lineNumber > blockEnd) continue;
+
+                    if (!best || (block.endLine - block.startLine) > (best.endLine - best.startLine)) {
+                        best = block;
+                    }
+                }
+
+                return best;
+            }
+
+            getContainerInfoAtLine(
+                view: EditorView,
+                lineNumber: number
+            ): { type: BlockType.ListItem | BlockType.Blockquote | BlockType.Callout; block: BlockInfo } | null {
+                const doc = view.state.doc;
+                if (lineNumber < 1 || lineNumber > doc.lines) return null;
+
+                const directBlock = detectBlock(view.state, lineNumber);
+                if (directBlock) {
+                    const directType = this.getContainerTypeForBlock(view, directBlock);
+                    if (directType) {
+                        return { type: directType, block: directBlock };
+                    }
+                }
+
+                const enclosingListBlock = this.findEnclosingListBlock(view, lineNumber);
+                if (enclosingListBlock) {
+                    return { type: BlockType.ListItem, block: enclosingListBlock };
+                }
+
+                const lineText = doc.line(lineNumber).text;
+                const quoteDepth = this.getBlockquoteDepthFromLine(lineText);
+                if (quoteDepth > 0) {
+                    let isCallout = false;
+                    for (let i = lineNumber; i >= 1; i--) {
+                        const text = doc.line(i).text;
+                        if (this.getBlockquoteDepthFromLine(text) === 0) break;
+                        if (/^(\s*> ?)+\s*\[!/.test(text)) {
+                            isCallout = true;
+                            break;
+                        }
+                    }
+                    const type = isCallout ? BlockType.Callout : BlockType.Blockquote;
+                    return { type, block: this.buildSyntheticLineBlock(view, lineNumber, type) };
+                }
+
+                return null;
+            }
+
+            getContainerContextAtInsertion(
+                view: EditorView,
+                targetLineNumber: number
+            ): { type: BlockType.ListItem | BlockType.Blockquote | BlockType.Callout; block: BlockInfo } | null {
+                const doc = view.state.doc;
+                const prevLineNumber = this.getPreviousNonEmptyLineNumber(doc, targetLineNumber - 1);
+                const nextLineNumber = this.getNextNonEmptyLineNumber(doc, targetLineNumber);
+                const strictCandidates = [
+                    targetLineNumber - 1,
+                    targetLineNumber,
+                    targetLineNumber + 1,
+                    prevLineNumber,
+                    nextLineNumber,
+                ].filter((v): v is number => typeof v === 'number' && v >= 1 && v <= doc.lines);
+                const seen = new Set<number>();
+
+                // 1) 严格命中：目标线位于某个容器块内部
+                for (const lineNumber of strictCandidates) {
+                    if (seen.has(lineNumber)) continue;
+                    seen.add(lineNumber);
+
+                    const infoAtLine = this.getContainerInfoAtLine(view, lineNumber);
+                    if (!infoAtLine) continue;
+
+                    const blockTopBoundary = infoAtLine.block.startLine + 1;
+                    const blockBottomBoundary = infoAtLine.block.endLine + 2;
+                    const isInsideContainer = targetLineNumber > blockTopBoundary
+                        && targetLineNumber < blockBottomBoundary;
+                    if (!isInsideContainer) continue;
+
+                    return infoAtLine;
+                }
+
+                // 2) 边界命中：目标线夹在同类容器上下文之间（常见于列表项之间/引用行之间）
+                const prevInfo = typeof prevLineNumber === 'number'
+                    ? this.getContainerInfoAtLine(view, prevLineNumber)
+                    : null;
+                const nextInfo = typeof nextLineNumber === 'number'
+                    ? this.getContainerInfoAtLine(view, nextLineNumber)
+                    : null;
+                const targetLineText = targetLineNumber <= doc.lines ? doc.line(targetLineNumber).text : '';
+                const targetLineIsBlank = targetLineText.trim().length === 0;
+                if (!targetLineIsBlank && prevInfo && nextInfo && prevInfo.type === nextInfo.type) {
+                    return prevInfo;
+                }
+
+                return null;
+            }
+
+            shouldPreventDropIntoDifferentContainer(
+                view: EditorView,
+                sourceBlock: BlockInfo,
+                targetLineNumber: number
+            ): boolean {
+                const targetContainer = this.getContainerContextAtInsertion(view, targetLineNumber);
+                if (!targetContainer) return false;
+
+                const sourceContainerType = this.getSourceContainerType(sourceBlock);
+                if (sourceContainerType === targetContainer.type) return false;
+
+                return true;
+            }
+
             findParentLineNumberByIndent(
                 doc: { line: (n: number) => { text: string }; lines: number },
                 startLineNumber: number,
@@ -1241,7 +1440,10 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             }
 
 
-            buildTargetMarker(target: { markerType: 'ordered' | 'unordered' | 'task' }, source: { markerType: 'ordered' | 'unordered' | 'task' }): string {
+            buildTargetMarker(
+                target: { markerType: 'ordered' | 'unordered' | 'task' },
+                source: { markerType: 'ordered' | 'unordered' | 'task'; marker: string }
+            ): string {
                 if (target.markerType === 'ordered') return '1. ';
                 if (target.markerType === 'task') {
                     if (source.markerType === 'task') return source.marker.replace(/^\s*[-*+]\s\[[ xX]\]\s+/, '- [ ] ');
@@ -1348,9 +1550,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 const pos = view.posAtCoords({ x, y: info.clientY });
                 if (pos === null) return null;
 
-                const height = this.clampNumber(info.clientY - view.documentTop, 0, view.contentHeight);
-                const lineBlock = view.lineBlockAtHeight(height);
-                let line = view.state.doc.lineAt(lineBlock.from);
+                let line = view.state.doc.lineAt(pos);
 
                 const lineBoundsForSnap = this.getListMarkerBounds(view, line.number);
                 const lineParsedForSnap = this.parseLineWithQuote(line.text);
@@ -1565,7 +1765,10 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 lineRect?: { left: number; width: number };
                 highlightRect?: { top: number; left: number; width: number; height: number };
             } | null {
-                const dragSource = info.dragSource ?? null;
+                if (isPointInsideRenderedTableCell(view, info.clientX, info.clientY)) {
+                    return null;
+                }
+                const dragSource = info.dragSource ?? getActiveDragSourceBlock() ?? null;
                 const embedEl = this.getEmbedElementAtPoint(view, info.clientX, info.clientY);
                 if (embedEl) {
                     const block = this.getBlockInfoForEmbed(view, embedEl);
@@ -1573,6 +1776,9 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                         const rect = embedEl.getBoundingClientRect();
                         const showAtBottom = info.clientY > rect.top + rect.height / 2;
                         const lineNumber = this.clampTargetLineNumber(view.state.doc.lines, showAtBottom ? block.endLine + 2 : block.startLine + 1);
+                        if (dragSource && this.shouldPreventDropIntoDifferentContainer(view, dragSource, lineNumber)) {
+                            return null;
+                        }
                         const indicatorY = showAtBottom ? rect.bottom : rect.top;
                         return { lineNumber, indicatorY, lineRect: { left: rect.left, width: rect.width } };
                     }
@@ -1580,6 +1786,9 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
                 const vertical = this.computeVerticalTarget(view, info);
                 if (!vertical) return null;
+                if (dragSource && this.shouldPreventDropIntoDifferentContainer(view, dragSource, vertical.targetLineNumber)) {
+                    return null;
+                }
 
                 const listTarget = this.computeListTarget(view, {
                     targetLineNumber: vertical.targetLineNumber,
@@ -1621,7 +1830,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             getEmbedElementAtPoint(view: EditorView, clientX: number, clientY: number): HTMLElement | null {
                 const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
                 if (el) {
-                    const direct = el.closest('.cm-embed-block, .cm-callout, .cm-preview-code-block, .cm-math, .MathJax_Display') as HTMLElement | null;
+                    const direct = el.closest(EMBED_BLOCK_SELECTOR) as HTMLElement | null;
                     if (direct) {
                         return (direct.closest('.cm-embed-block') as HTMLElement | null) ?? direct;
                     }
@@ -1632,7 +1841,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 if (clientX < editorRect.left || clientX > editorRect.right) return null;
 
                 const embeds = Array.from(
-                    view.dom.querySelectorAll('.cm-embed-block, .cm-callout, .cm-preview-code-block, .cm-math, .MathJax_Display')
+                    view.dom.querySelectorAll(EMBED_BLOCK_SELECTOR)
                 ) as HTMLElement[];
 
                 let best: HTMLElement | null = null;
@@ -1654,13 +1863,13 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             }
 
             getDragSourceBlock(e: DragEvent): BlockInfo | null {
-                if (!e.dataTransfer) return null;
+                if (!e.dataTransfer) return getActiveDragSourceBlock();
                 const data = e.dataTransfer.getData('application/dnd-block');
-                if (!data) return null;
+                if (!data) return getActiveDragSourceBlock();
                 try {
                     return JSON.parse(data) as BlockInfo;
                 } catch {
-                    return null;
+                    return getActiveDragSourceBlock();
                 }
             }
 
@@ -1743,6 +1952,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             }
 
             destroy(): void {
+                this.view.dom.classList.remove(ROOT_EDITOR_CLASS);
                 if (this.observer) {
                     this.observer.disconnect();
                 }
