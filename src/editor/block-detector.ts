@@ -219,7 +219,7 @@ function getBlockquoteSubtreeRange(doc: Text, lineNumber: number): { startLine: 
         const nextText = doc.line(i).text;
         if (!isBlockquoteLine(nextText)) break;
         const nextDepth = getBlockquoteDepthFromLine(nextText);
-        if (nextDepth <= currentDepth) break;
+        if (nextDepth < currentDepth) break;
         endLine = i;
     }
 
