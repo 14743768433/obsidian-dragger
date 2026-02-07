@@ -23,6 +23,8 @@ Thumbs.db
 *.md
 !README.md
 !README.zh-CN.md
+!docs/
+!docs/*.md
 
 # Logs
 *.log

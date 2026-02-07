@@ -18,6 +18,20 @@ function createBlockFromLine(doc: EditorState['doc'], lineNumber: number): Block
     };
 }
 
+function createListBlock(doc: EditorState['doc'], startLine: number, endLine: number): BlockInfo {
+    const start = doc.line(startLine);
+    const end = doc.line(endLine);
+    return {
+        type: BlockType.ListItem,
+        startLine: startLine - 1,
+        endLine: endLine - 1,
+        from: start.from,
+        to: end.to,
+        indentLevel: 0,
+        content: doc.sliceString(start.from, end.to),
+    };
+}
+
 describe('BlockMover', () => {
     it('skips dispatch when container policy blocks the drop', () => {
         const state = EditorState.create({ doc: 'alpha\nbeta\ngamma' });
@@ -68,5 +82,31 @@ describe('BlockMover', () => {
         expect(Array.isArray(payload.changes)).toBe(true);
         expect(payload.changes).toHaveLength(2);
         setTimeoutSpy.mockRestore();
+    });
+
+    it('prevents self-embedding indent when dropping list root at its own tail', () => {
+        const state = EditorState.create({ doc: '- root\n  - child\nafter' });
+        const dispatch = vi.fn();
+        const view = { state, dispatch } as unknown as EditorView;
+        const mover = new BlockMover({
+            view,
+            clampTargetLineNumber: (_total, lineNumber) => lineNumber,
+            getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
+            shouldPreventDropIntoDifferentContainer: () => false,
+            parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
+            getListContext: () => null,
+            getIndentUnitWidth: () => 2,
+            buildInsertText: (_doc, _sourceBlock, _targetLineNumber, sourceContent) => `${sourceContent}\n`,
+        });
+
+        mover.moveBlock({
+            sourceBlock: createListBlock(state.doc, 1, 2),
+            targetPos: state.doc.line(3).from,
+            targetLineNumberOverride: 3,
+            listContextLineNumberOverride: 2,
+            listTargetIndentWidthOverride: 2,
+        });
+
+        expect(dispatch).not.toHaveBeenCalled();
     });
 });

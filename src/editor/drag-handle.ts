@@ -38,6 +38,11 @@ import { DecorationManager } from './managers/DecorationManager';
 import { EmbedHandleManager } from './managers/EmbedHandleManager';
 import { clampNumber, clampTargetLineNumber } from './utils/coordinate-utils';
 
+function isMobileNoHandleMode(): boolean {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+    return window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+}
+
 /**
  * 创建拖拽手柄ViewPlugin
  */
@@ -106,14 +111,17 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     startDragFromHandle: (e, resolveBlockInfo, handle) =>
                         startDragFromHandle(e, this.view, resolveBlockInfo, handle),
                     finishDragSession: () => finishDragSession(),
+                    shouldRenderInlineHandles: () => !isMobileNoHandleMode(),
                 });
                 this.embedHandleManager = new EmbedHandleManager(this.view, {
                     createHandleElement: this.createHandleElement.bind(this),
                     resolveBlockInfoForEmbed: (embedEl) => this.dragSourceResolver.getBlockInfoForEmbed(embedEl),
+                    shouldRenderEmbedHandles: () => !isMobileNoHandleMode(),
                 });
                 this.dragEventHandler = new DragEventHandler(this.view, {
                     getDragSourceBlock: getDragSourceBlockFromEvent,
                     getBlockInfoForHandle: (handle) => this.dragSourceResolver.getBlockInfoForHandle(handle),
+                    getBlockInfoAtPoint: (clientX, clientY) => this.dragSourceResolver.getDraggableBlockAtPoint(clientX, clientY),
                     isBlockInsideRenderedTableCell: (blockInfo) =>
                         isPosInsideRenderedTableCell(this.view, blockInfo.from, { skipLayoutRead: true }),
                     beginPointerDragSession: beginDragSession,

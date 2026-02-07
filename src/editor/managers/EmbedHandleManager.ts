@@ -11,6 +11,7 @@ type EmbedHandleEntry = {
 export interface EmbedHandleManagerDeps {
     createHandleElement: (getBlockInfo: () => BlockInfo | null) => HTMLElement;
     resolveBlockInfoForEmbed: (embedEl: HTMLElement) => BlockInfo | null;
+    shouldRenderEmbedHandles?: () => boolean;
 }
 
 export class EmbedHandleManager {
@@ -24,6 +25,11 @@ export class EmbedHandleManager {
         private readonly view: EditorView,
         private readonly deps: EmbedHandleManagerDeps
     ) { }
+
+    private shouldRenderEmbedHandles(): boolean {
+        if (!this.deps.shouldRenderEmbedHandles) return true;
+        return this.deps.shouldRenderEmbedHandles();
+    }
 
     start(): void {
         if (!this.observer) {
@@ -53,6 +59,14 @@ export class EmbedHandleManager {
     }
 
     rescan(): void {
+        if (!this.shouldRenderEmbedHandles()) {
+            for (const [embedEl, entry] of this.embedHandles.entries()) {
+                this.cleanupHandle(embedEl, entry);
+            }
+            this.embedHandles.clear();
+            return;
+        }
+
         const embeds = this.view.dom.querySelectorAll(EMBED_BLOCK_SELECTOR);
         const handled = new Set<HTMLElement>();
 
@@ -107,6 +121,7 @@ export class EmbedHandleManager {
     }
 
     updateHandlePositions(): void {
+        if (!this.shouldRenderEmbedHandles()) return;
         for (const [embedEl, entry] of this.embedHandles.entries()) {
             if (!document.body.contains(embedEl)) continue;
             this.positionHandle(embedEl, entry.handle);
@@ -114,6 +129,7 @@ export class EmbedHandleManager {
     }
 
     hideAllHandles(): void {
+        if (!this.shouldRenderEmbedHandles()) return;
         for (const entry of this.embedHandles.values()) {
             entry.handle.classList.remove('is-visible');
             entry.handle.style.display = 'none';

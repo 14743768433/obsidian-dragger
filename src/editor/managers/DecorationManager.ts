@@ -8,6 +8,7 @@ export interface DecorationManagerDeps {
     getDraggableBlockAtLine: (lineNumber: number) => BlockInfo | null;
     startDragFromHandle: (e: DragEvent, resolveBlockInfo: () => BlockInfo | null, handle?: HTMLElement | null) => void;
     finishDragSession: () => void;
+    shouldRenderInlineHandles?: () => boolean;
 }
 
 class DragHandleWidget extends WidgetType {
@@ -48,6 +49,10 @@ export class DecorationManager {
     constructor(private readonly deps: DecorationManagerDeps) { }
 
     buildDecorations(): DecorationSet {
+        if (this.deps.shouldRenderInlineHandles && !this.deps.shouldRenderInlineHandles()) {
+            return Decoration.none;
+        }
+
         try {
             const decorations: any[] = [];
             const doc = this.deps.view.state.doc;

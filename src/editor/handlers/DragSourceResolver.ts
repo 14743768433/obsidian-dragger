@@ -28,6 +28,19 @@ export class DragSourceResolver {
         return this.expandHeadingBlockIfCollapsed(block);
     }
 
+    getDraggableBlockAtPoint(clientX: number, clientY: number): BlockInfo | null {
+        const contentRect = this.view.contentDOM.getBoundingClientRect();
+        if (clientX < contentRect.left || clientX > contentRect.right) return null;
+        if (clientY < contentRect.top || clientY > contentRect.bottom) return null;
+
+        const x = Math.min(Math.max(clientX, contentRect.left + 2), contentRect.right - 2);
+        const pos = this.view.posAtCoords({ x, y: clientY });
+        if (pos === null) return null;
+
+        const lineNumber = this.view.state.doc.lineAt(pos).number;
+        return this.getDraggableBlockAtLine(lineNumber);
+    }
+
     getBlockInfoForEmbed(embedEl: HTMLElement): BlockInfo | null {
         const candidates = [embedEl, embedEl.parentElement].filter((el): el is HTMLElement => !!el);
         for (const candidate of candidates) {

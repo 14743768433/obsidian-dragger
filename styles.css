@@ -29,19 +29,15 @@
     cursor: grabbing;
 }
 
-/* 触屏设备没有 hover，默认显示手柄并扩大命中范围 */
+/* 移动端无手柄模式：隐藏所有手柄，改为左侧热区长按触发 */
 @media (hover: none) and (pointer: coarse) {
-    .dnd-drag-handle {
-        opacity: 0.75;
-        width: 22px;
-        height: 22px;
-        left: -32px;
-        touch-action: none;
+    .dnd-drag-handle,
+    .dnd-embed-handle {
+        display: none !important;
     }
 
-    .dnd-embed-handle {
-        opacity: 0.75;
-        touch-action: none;
+    .markdown-source-view.mod-cm6 .cm-editor.dnd-root-editor .cm-content.dnd-main-content {
+        padding-left: 24px;
     }
 }
 

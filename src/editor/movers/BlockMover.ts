@@ -88,8 +88,17 @@ export class BlockMover {
                     const isAfterSelf = targetLineIdx === sourceBlock.endLine + 1;
                     const isSameLine = targetLineIdx === sourceBlock.startLine;
                     const sourceLineNumber = sourceBlock.startLine + 1;
+                    const sourceEndLineNumber = sourceBlock.endLine + 1;
                     const listContextLineNumber = listContextLineNumberOverride ?? targetLineNumber;
                     const isSelfContext = listContextLineNumber === sourceLineNumber;
+                    const isContextInsideSource = listContextLineNumber >= sourceLineNumber
+                        && listContextLineNumber <= sourceEndLineNumber;
+
+                    // Prevent self-embedding: dragging a list root to its own tail should never increase indent.
+                    if (isAfterSelf && isContextInsideSource && targetIndentWidth > sourceParsed.indentWidth) {
+                        return;
+                    }
+
                     if (isAfterSelf && targetIndentWidth !== sourceParsed.indentWidth) {
                         allowInPlaceIndentChange = true;
                     } else if (isSameLine && targetIndentWidth !== sourceParsed.indentWidth && !isSelfContext) {
