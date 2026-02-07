@@ -1,4 +1,3 @@
-import { EditorState } from '@codemirror/state';
 import { DocLike, ParsedLine } from '../core/types';
 import { parseLineWithQuote as parseLineWithQuoteByTabSize } from '../core/line-parser';
 import {
@@ -6,19 +5,19 @@ import {
     getIndentUnitWidth as getIndentUnitWidthFromSample,
 } from '../core/block-mutation';
 
-export function getTabSize(state?: EditorState): number {
-    const tabSize = state?.facet(EditorState.tabSize) ?? 4;
-    return tabSize > 0 ? tabSize : 4;
+export function normalizeTabSize(tabSize?: number): number {
+    const safe = tabSize ?? 4;
+    return safe > 0 ? safe : 4;
 }
 
-export function parseLineWithQuote(line: string, state?: EditorState): ParsedLine {
-    return parseLineWithQuoteByTabSize(line, getTabSize(state));
+export function parseLineWithQuote(line: string, tabSize: number): ParsedLine {
+    return parseLineWithQuoteByTabSize(line, normalizeTabSize(tabSize));
 }
 
 export function getIndentUnitWidthFromDoc(
     doc: DocLike,
     parseLine: (line: string) => ParsedLine,
-    state?: EditorState
+    fallbackTabSize?: number
 ): number | undefined {
     let best = Number.POSITIVE_INFINITY;
     let prevIndent: number | null = null;
@@ -35,11 +34,7 @@ export function getIndentUnitWidthFromDoc(
     }
 
     if (!isFinite(best)) {
-        if (state) {
-            const tabSize = state.facet(EditorState.tabSize);
-            return tabSize > 0 ? tabSize : undefined;
-        }
-        return undefined;
+        return normalizeTabSize(fallbackTabSize);
     }
     return Math.max(2, best);
 }
@@ -47,18 +42,17 @@ export function getIndentUnitWidthFromDoc(
 export function getIndentUnitWidthForDoc(
     doc: DocLike,
     parseLine: (line: string) => ParsedLine,
-    state?: EditorState
+    fallbackTabSize?: number
 ): number {
-    const fromDoc = getIndentUnitWidthFromDoc(doc, parseLine, state);
+    const fromDoc = getIndentUnitWidthFromDoc(doc, parseLine, fallbackTabSize);
     if (typeof fromDoc === 'number') return fromDoc;
-    const tabSize = getTabSize(state);
-    return tabSize > 0 ? tabSize : 4;
+    return normalizeTabSize(fallbackTabSize);
 }
 
-export function buildIndentStringFromSample(sample: string, width: number, state?: EditorState): string {
-    return buildIndentStringFromSampleText(sample, width, getTabSize(state));
+export function buildIndentStringFromSample(sample: string, width: number, tabSize: number): string {
+    return buildIndentStringFromSampleText(sample, width, normalizeTabSize(tabSize));
 }
 
-export function getIndentUnitWidth(sample: string, state?: EditorState): number {
-    return getIndentUnitWidthFromSample(sample, getTabSize(state));
+export function getIndentUnitWidth(sample: string, tabSize: number): number {
+    return getIndentUnitWidthFromSample(sample, normalizeTabSize(tabSize));
 }

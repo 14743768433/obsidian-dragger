@@ -6,8 +6,8 @@ import { ListRenumberer } from './ListRenumberer';
 export interface BlockMoverDeps {
     view: EditorView;
     clampTargetLineNumber: (totalLines: number, lineNumber: number) => number;
-    getAdjustedTargetLocation: (view: EditorView, lineNumber: number, options?: { clientY?: number }) => { lineNumber: number; blockAdjusted: boolean };
-    shouldPreventDropIntoDifferentContainer: (view: EditorView, sourceBlock: BlockInfo, targetLineNumber: number) => boolean;
+    getAdjustedTargetLocation: (lineNumber: number, options?: { clientY?: number }) => { lineNumber: number; blockAdjusted: boolean };
+    shouldPreventDropIntoDifferentContainer: (sourceBlock: BlockInfo, targetLineNumber: number) => boolean;
     parseLineWithQuote: (line: string) => ParsedLine;
     getListContext: (doc: DocLike, lineNumber: number) => ListContext;
     getIndentUnitWidth: (sample: string) => number;
@@ -56,14 +56,14 @@ export class BlockMover {
         let targetLineNumber = targetLineNumberOverride ?? targetLine.number;
 
         if (targetLineNumberOverride === undefined) {
-            const adjusted = this.deps.getAdjustedTargetLocation(view, targetLine.number);
+            const adjusted = this.deps.getAdjustedTargetLocation(targetLine.number);
             if (adjusted.blockAdjusted) {
                 targetLineNumber = adjusted.lineNumber;
             }
         }
 
         targetLineNumber = this.deps.clampTargetLineNumber(doc.lines, targetLineNumber);
-        if (this.deps.shouldPreventDropIntoDifferentContainer(view, sourceBlock, targetLineNumber)) {
+        if (this.deps.shouldPreventDropIntoDifferentContainer(sourceBlock, targetLineNumber)) {
             return;
         }
 

@@ -23,7 +23,10 @@ import { DropIndicatorManager } from './managers/DropIndicatorManager';
 import { DropTargetCalculator } from './handlers/DropTargetCalculator';
 import { DragEventHandler } from './handlers/DragEventHandler';
 import { DragSourceResolver } from './handlers/DragSourceResolver';
-import { DropPolicyAdapter } from './handlers/DropPolicyAdapter';
+import { LineParser } from './handlers/LineParser';
+import { GeometryCalculator } from './handlers/GeometryCalculator';
+import { ContainerDropPolicy } from './handlers/ContainerDropPolicy';
+import { TextMutationPolicy } from './handlers/TextMutationPolicy';
 import {
     beginDragSession,
     finishDragSession,
@@ -46,7 +49,10 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             dropIndicator: DropIndicatorManager;
             blockMover: BlockMover;
             dropTargetCalculator: DropTargetCalculator;
-            dropPolicy: DropPolicyAdapter;
+            lineParser: LineParser;
+            geometryCalculator: GeometryCalculator;
+            containerDropPolicy: ContainerDropPolicy;
+            textMutationPolicy: TextMutationPolicy;
             decorationManager: DecorationManager;
             embedHandleManager: EmbedHandleManager;
             dragEventHandler: DragEventHandler;
@@ -57,23 +63,23 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.view.dom.classList.add(ROOT_EDITOR_CLASS);
                 this.view.contentDOM.classList.add(MAIN_EDITOR_CONTENT_CLASS);
                 this.dragSourceResolver = new DragSourceResolver(this.view);
-                this.dropPolicy = new DropPolicyAdapter(this.view);
+                this.lineParser = new LineParser(this.view);
+                this.geometryCalculator = new GeometryCalculator(this.view, this.lineParser);
+                this.containerDropPolicy = new ContainerDropPolicy(this.view);
+                this.textMutationPolicy = new TextMutationPolicy(this.view, this.lineParser);
                 this.dropTargetCalculator = new DropTargetCalculator(this.view, {
-                    parseLineWithQuote: this.dropPolicy.parseLineWithQuote.bind(this.dropPolicy),
-                    getAdjustedTargetLocation: (_view, lineNumber, options) =>
-                        this.dropPolicy.getAdjustedTargetLocation(lineNumber, options),
+                    parseLineWithQuote: this.textMutationPolicy.parseLineWithQuote.bind(this.textMutationPolicy),
+                    getAdjustedTargetLocation: this.geometryCalculator.getAdjustedTargetLocation.bind(this.geometryCalculator),
                     clampTargetLineNumber,
                     getPreviousNonEmptyLineNumber: getPreviousNonEmptyLineNumberInDoc,
-                    shouldPreventDropIntoDifferentContainer: (_view, sourceBlock, targetLineNumber) =>
-                        this.dropPolicy.shouldPreventDropIntoDifferentContainer(sourceBlock, targetLineNumber),
-                    getBlockInfoForEmbed: (_view, embedEl) => this.dragSourceResolver.getBlockInfoForEmbed(embedEl),
-                    getIndentUnitWidthForDoc: (doc, state) => this.dropPolicy.getIndentUnitWidthForDoc(doc, state),
-                    getLineRect: (_view, lineNumber) => this.dropPolicy.getLineRect(lineNumber),
-                    getInsertionAnchorY: (_view, lineNumber) => this.dropPolicy.getInsertionAnchorY(lineNumber),
-                    getLineIndentPosByWidth: (_view, lineNumber, targetIndentWidth) =>
-                        this.dropPolicy.getLineIndentPosByWidth(lineNumber, targetIndentWidth),
-                    getBlockRect: (_view, startLineNumber, endLineNumber) =>
-                        this.dropPolicy.getBlockRect(startLineNumber, endLineNumber),
+                    shouldPreventDropIntoDifferentContainer:
+                        this.containerDropPolicy.shouldPreventDropIntoDifferentContainer.bind(this.containerDropPolicy),
+                    getBlockInfoForEmbed: (embedEl) => this.dragSourceResolver.getBlockInfoForEmbed(embedEl),
+                    getIndentUnitWidthForDoc: this.textMutationPolicy.getIndentUnitWidthForDoc.bind(this.textMutationPolicy),
+                    getLineRect: this.geometryCalculator.getLineRect.bind(this.geometryCalculator),
+                    getInsertionAnchorY: this.geometryCalculator.getInsertionAnchorY.bind(this.geometryCalculator),
+                    getLineIndentPosByWidth: this.geometryCalculator.getLineIndentPosByWidth.bind(this.geometryCalculator),
+                    getBlockRect: this.geometryCalculator.getBlockRect.bind(this.geometryCalculator),
                     clampNumber,
                 });
                 this.dropIndicator = new DropIndicatorManager(view, (info) =>
@@ -86,14 +92,13 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.blockMover = new BlockMover({
                     view: this.view,
                     clampTargetLineNumber,
-                    getAdjustedTargetLocation: (_view, lineNumber, options) =>
-                        this.dropPolicy.getAdjustedTargetLocation(lineNumber, options),
-                    shouldPreventDropIntoDifferentContainer: (_view, sourceBlock, targetLineNumber) =>
-                        this.dropPolicy.shouldPreventDropIntoDifferentContainer(sourceBlock, targetLineNumber),
-                    parseLineWithQuote: this.dropPolicy.parseLineWithQuote.bind(this.dropPolicy),
-                    getListContext: this.dropPolicy.getListContext.bind(this.dropPolicy),
-                    getIndentUnitWidth: this.dropPolicy.getIndentUnitWidth.bind(this.dropPolicy),
-                    buildInsertText: this.dropPolicy.buildInsertText.bind(this.dropPolicy),
+                    getAdjustedTargetLocation: this.geometryCalculator.getAdjustedTargetLocation.bind(this.geometryCalculator),
+                    shouldPreventDropIntoDifferentContainer:
+                        this.containerDropPolicy.shouldPreventDropIntoDifferentContainer.bind(this.containerDropPolicy),
+                    parseLineWithQuote: this.textMutationPolicy.parseLineWithQuote.bind(this.textMutationPolicy),
+                    getListContext: this.textMutationPolicy.getListContext.bind(this.textMutationPolicy),
+                    getIndentUnitWidth: this.textMutationPolicy.getIndentUnitWidth.bind(this.textMutationPolicy),
+                    buildInsertText: this.textMutationPolicy.buildInsertText.bind(this.textMutationPolicy),
                 });
                 this.decorationManager = new DecorationManager({
                     view: this.view,

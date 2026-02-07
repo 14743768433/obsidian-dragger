@@ -1,7 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { detectBlock } from '../block-detector';
 import { BlockInfo, BlockType } from '../../types';
-import { ParsedLine } from '../core/types';
+import { DocLike, ParsedLine } from '../core/types';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 import { isPointInsideRenderedTableCell } from '../core/table-guard';
 
@@ -17,16 +17,16 @@ type DropTargetInfo = {
 
 export interface DropTargetCalculatorDeps {
     parseLineWithQuote: (line: string) => ParsedLine;
-    getAdjustedTargetLocation: (view: EditorView, lineNumber: number, options?: { clientY?: number }) => { lineNumber: number; blockAdjusted: boolean };
+    getAdjustedTargetLocation: (lineNumber: number, options?: { clientY?: number }) => { lineNumber: number; blockAdjusted: boolean };
     clampTargetLineNumber: (totalLines: number, lineNumber: number) => number;
-    getPreviousNonEmptyLineNumber: (doc: { line: (n: number) => { text: string }; lines: number }, lineNumber: number) => number | null;
-    shouldPreventDropIntoDifferentContainer: (view: EditorView, sourceBlock: BlockInfo, targetLineNumber: number) => boolean;
-    getBlockInfoForEmbed: (view: EditorView, embedEl: HTMLElement) => BlockInfo | null;
-    getIndentUnitWidthForDoc: (doc: { line: (n: number) => { text: string }; lines: number }, state?: any) => number;
-    getLineRect: (view: EditorView, lineNumber: number) => { left: number; width: number } | undefined;
-    getInsertionAnchorY: (view: EditorView, lineNumber: number) => number | null;
-    getLineIndentPosByWidth: (view: EditorView, lineNumber: number, targetIndentWidth: number) => number | null;
-    getBlockRect: (view: EditorView, startLineNumber: number, endLineNumber: number) => { top: number; left: number; width: number; height: number } | undefined;
+    getPreviousNonEmptyLineNumber: (doc: DocLike, lineNumber: number) => number | null;
+    shouldPreventDropIntoDifferentContainer: (sourceBlock: BlockInfo, targetLineNumber: number) => boolean;
+    getBlockInfoForEmbed: (embedEl: HTMLElement) => BlockInfo | null;
+    getIndentUnitWidthForDoc: (doc: DocLike) => number;
+    getLineRect: (lineNumber: number) => { left: number; width: number } | undefined;
+    getInsertionAnchorY: (lineNumber: number) => number | null;
+    getLineIndentPosByWidth: (lineNumber: number, targetIndentWidth: number) => number | null;
+    getBlockRect: (startLineNumber: number, endLineNumber: number) => { top: number; left: number; width: number; height: number } | undefined;
     clampNumber: (value: number, min: number, max: number) => number;
 }
 
@@ -43,12 +43,12 @@ export class DropTargetCalculator {
         const dragSource = info.dragSource ?? null;
         const embedEl = this.getEmbedElementAtPoint(info.clientX, info.clientY);
         if (embedEl) {
-            const block = this.deps.getBlockInfoForEmbed(this.view, embedEl);
+            const block = this.deps.getBlockInfoForEmbed(embedEl);
             if (block) {
                 const rect = embedEl.getBoundingClientRect();
                 const showAtBottom = info.clientY > rect.top + rect.height / 2;
                 const lineNumber = this.deps.clampTargetLineNumber(this.view.state.doc.lines, showAtBottom ? block.endLine + 2 : block.startLine + 1);
-                if (dragSource && this.deps.shouldPreventDropIntoDifferentContainer(this.view, dragSource, lineNumber)) {
+                if (dragSource && this.deps.shouldPreventDropIntoDifferentContainer(dragSource, lineNumber)) {
                     return null;
                 }
                 const indicatorY = showAtBottom ? rect.bottom : rect.top;
@@ -58,7 +58,7 @@ export class DropTargetCalculator {
 
         const vertical = this.computeVerticalTarget(info);
         if (!vertical) return null;
-        if (dragSource && this.deps.shouldPreventDropIntoDifferentContainer(this.view, dragSource, vertical.targetLineNumber)) {
+        if (dragSource && this.deps.shouldPreventDropIntoDifferentContainer(dragSource, vertical.targetLineNumber)) {
             return null;
         }
 
@@ -71,14 +71,14 @@ export class DropTargetCalculator {
             clientX: info.clientX,
         });
 
-        const indicatorY = this.deps.getInsertionAnchorY(this.view, vertical.targetLineNumber);
+        const indicatorY = this.deps.getInsertionAnchorY(vertical.targetLineNumber);
         if (indicatorY === null) return null;
 
         const lineRectSourceLineNumber = listTarget.lineRectSourceLineNumber
             ?? vertical.lineRectSourceLineNumber;
-        let lineRect = this.deps.getLineRect(this.view, lineRectSourceLineNumber);
+        let lineRect = this.deps.getLineRect(lineRectSourceLineNumber);
         if (typeof listTarget.listTargetIndentWidth === 'number') {
-            const indentPos = this.deps.getLineIndentPosByWidth(this.view, lineRectSourceLineNumber, listTarget.listTargetIndentWidth);
+            const indentPos = this.deps.getLineIndentPosByWidth(lineRectSourceLineNumber, listTarget.listTargetIndentWidth);
             if (indentPos !== null) {
                 const start = this.view.coordsAtPos(indentPos);
                 const end = this.view.coordsAtPos(this.view.state.doc.line(lineRectSourceLineNumber).to);
@@ -119,7 +119,7 @@ export class DropTargetCalculator {
             && lineParsedForSnap.isListItem
             && info.clientX >= lineBoundsForSnap.contentStartX + 2;
 
-        const adjustedTarget = this.deps.getAdjustedTargetLocation(this.view, line.number, { clientY: info.clientY });
+        const adjustedTarget = this.deps.getAdjustedTargetLocation(line.number, { clientY: info.clientY });
         let forcedLineNumber: number | null = adjustedTarget.blockAdjusted ? adjustedTarget.lineNumber : null;
 
         let showAtBottom = false;
@@ -207,7 +207,7 @@ export class DropTargetCalculator {
 
         return {
             lineRectSourceLineNumber,
-            highlightRect: this.deps.getBlockRect(this.view, blockStartLineNumber, blockEndLineNumber),
+            highlightRect: this.deps.getBlockRect(blockStartLineNumber, blockEndLineNumber),
         };
     }
 
@@ -250,7 +250,7 @@ export class DropTargetCalculator {
         const listIndentDelta = dropTarget.mode === 'child' ? 1 : 0;
         let cappedIndentWidth = dropTarget.indentWidth;
 
-        const indentUnit = this.deps.getIndentUnitWidthForDoc(doc, this.view.state);
+        const indentUnit = this.deps.getIndentUnitWidthForDoc(doc);
         const prevIndent = this.getListIndentWidthAtLine(doc, baseLineNumber);
         if (typeof prevIndent === 'number') {
             const maxAllowedIndent = prevIndent + indentUnit;
@@ -299,7 +299,7 @@ export class DropTargetCalculator {
         const slots: Array<{ x: number; lineNumber: number; indentWidth: number; mode: 'child' | 'same' }> = [];
 
         const baseIndent = this.getListIndentWidthAtLine(doc, lineNumber);
-        const indentUnit = this.deps.getIndentUnitWidthForDoc(doc, this.view.state);
+        const indentUnit = this.deps.getIndentUnitWidthForDoc(doc);
         const maxIndent = typeof baseIndent === 'number' ? baseIndent + indentUnit : undefined;
         if (typeof baseIndent === 'number') {
             slots.push({ x: bounds.markerStartX, lineNumber, indentWidth: baseIndent, mode: 'same' });
