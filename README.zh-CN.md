@@ -6,6 +6,8 @@
 
 ---
 
+**推荐打开显示行号配合使用，行号位置即为拖动把手位置。**
+
 ## 功能
 - 拖拽块级内容：段落 / 标题 / 列表 / 任务 / 引用 / Callout / 表格 / 数学块
 - 嵌套拖拽：横向位置决定嵌套层级，纵向位置决定插入行
@@ -26,7 +28,7 @@
 3. 选择最新 Release 安装
 
 ### 手动安装
-将 Release 里的 main.js、manifest.json、styles.css（如有）放到：
+将 Release 里的 main.js、manifest.json、styles.css放到：
 `
 .obsidian/plugins/dragger
 `
