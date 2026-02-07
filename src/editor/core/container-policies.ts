@@ -171,6 +171,9 @@ export function getContainerContextAtInsertion(
     const targetLineText = targetLineNumber <= doc.lines ? doc.line(targetLineNumber).text : '';
     const targetLineIsBlank = targetLineText.trim().length === 0;
     if (!targetLineIsBlank && prevInfo && nextInfo && prevInfo.type === nextInfo.type) {
+        if (prevInfo.type === BlockType.ListItem) {
+            return null;
+        }
         return prevInfo;
     }
 

@@ -168,10 +168,13 @@ export function alignInlineHandleToHandleColumn(view: EditorView, handle: HTMLEl
         return;
     }
 
-    const contentRect = view.contentDOM.getBoundingClientRect();
-    const contentPaddingLeft = parseFloat(getComputedStyle(view.contentDOM).paddingLeft) || 0;
-    const fallbackLineLeft = contentRect.left + contentPaddingLeft;
-    handle.style.left = `${getInlineHandleLeftPx(view, fallbackLineLeft, lineNumber)}px`;
+    const offsetParentEl = (handle.offsetParent instanceof HTMLElement ? handle.offsetParent : view.dom);
+    const parentRect = offsetParentEl.getBoundingClientRect();
+    handle.style.left = `${getInlineHandleLeftPx(view, parentRect.left, lineNumber)}px`;
+    const topPx = typeof lineNumber === 'number' ? getHandleTopPxForLine(view, lineNumber) : null;
+    if (topPx !== null) {
+        handle.style.top = `${Math.round(topPx - parentRect.top)}px`;
+    }
 }
 
 export function getHandleTopPxForLine(view: EditorView, lineNumber: number): number | null {

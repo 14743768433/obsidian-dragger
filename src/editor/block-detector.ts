@@ -8,6 +8,12 @@ export function getHeadingLevel(lineText: string): number | null {
     return match[1].length;
 }
 
+function isHorizontalRuleLine(lineText: string): boolean {
+    const trimmed = lineText.trim();
+    if (trimmed.length < 3) return false;
+    return /^([-*_])(?:\s*\1){2,}$/.test(trimmed);
+}
+
 export function getHeadingSectionRange(doc: Text, lineNumber: number): { startLine: number; endLine: number } | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
     const currentHeadingLevel = getHeadingLevel(doc.line(lineNumber).text);
@@ -36,6 +42,11 @@ export function detectBlockType(lineText: string): BlockType {
         return BlockType.Heading;
     }
 
+    // 水平分隔线（支持 ---、***、___ 以及 - - - 等空格变体）
+    if (isHorizontalRuleLine(trimmed)) {
+        return BlockType.HorizontalRule;
+    }
+
     // 列表项（无序列表、有序列表、任务列表）
     if (/^[-*+]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed) || /^[-*+]\s\[[ x]\]/.test(trimmed)) {
         return BlockType.ListItem;
@@ -59,11 +70,6 @@ export function detectBlockType(lineText: string): BlockType {
     // 表格（以|开头）
     if (/^\|/.test(trimmed)) {
         return BlockType.Table;
-    }
-
-    // 水平分隔线
-    if (/^(---|\*\*\*|___)$/.test(trimmed)) {
-        return BlockType.HorizontalRule;
     }
 
     // 空行或普通段落

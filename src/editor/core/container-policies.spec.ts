@@ -83,6 +83,20 @@ describe('container-policies', () => {
         expect(prevented).toBe(false);
     });
 
+    it('allows insertion at boundary between adjacent top-level list items', () => {
+        const state = createState(['- first', '- second']);
+        const listTop = createBlock(BlockType.ListItem, 0, 0, '- first');
+        const listBottom = createBlock(BlockType.ListItem, 1, 1, '- second');
+        const detect = mapDetectBlock({ 1: listTop, 2: listBottom });
+        const sourceBlock = createBlock(BlockType.Paragraph, 0, 0, 'outside');
+
+        const context = getContainerContextAtInsertion(state, 2, detect);
+        const prevented = shouldPreventDropIntoDifferentContainer(state, sourceBlock, 2, detect);
+
+        expect(context).toBeNull();
+        expect(prevented).toBe(false);
+    });
+
     it('prevents dropping paragraph into callout body', () => {
         const state = createState(['> [!note] title', '> detail']);
         const calloutBlock = createBlock(BlockType.Callout, 0, 1, '> [!note] title\n> detail');

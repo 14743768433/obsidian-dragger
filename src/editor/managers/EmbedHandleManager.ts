@@ -82,8 +82,7 @@ export class EmbedHandleManager {
             if (!entry) {
                 const handle = this.deps.createHandleElement(getBlockInfo);
                 handle.classList.add('dnd-embed-handle');
-                handle.style.position = 'fixed';
-                document.body.appendChild(handle);
+                this.view.dom.appendChild(handle);
 
                 entry = { handle };
                 this.embedHandles.set(embedEl, entry);
@@ -95,7 +94,7 @@ export class EmbedHandleManager {
         });
 
         for (const [embedEl, entry] of this.embedHandles.entries()) {
-            if (!handled.has(embedEl) || !document.body.contains(embedEl)) {
+            if (!handled.has(embedEl) || !this.view.dom.contains(embedEl)) {
                 this.cleanupHandle(embedEl, entry);
                 this.embedHandles.delete(embedEl);
             }
@@ -105,7 +104,7 @@ export class EmbedHandleManager {
     updateHandlePositions(): void {
         if (!this.shouldRenderEmbedHandles()) return;
         for (const [embedEl, entry] of this.embedHandles.entries()) {
-            if (!document.body.contains(embedEl)) continue;
+            if (!this.view.dom.contains(embedEl)) continue;
             this.positionHandle(embedEl, entry.handle);
         }
     }
@@ -151,8 +150,9 @@ export class EmbedHandleManager {
         const top = lineNumber
             ? (getHandleTopPxForLine(this.view, lineNumber) ?? this.getEmbedFallbackTop(embedEl))
             : this.getEmbedFallbackTop(embedEl);
-        handle.style.left = `${left}px`;
-        handle.style.top = `${top}px`;
+        const editorRect = this.view.dom.getBoundingClientRect();
+        handle.style.left = `${Math.round(left - editorRect.left)}px`;
+        handle.style.top = `${Math.round(top - editorRect.top)}px`;
     }
 
     private resolveHandleLineNumber(handle: HTMLElement): number | null {
@@ -179,8 +179,9 @@ export class EmbedHandleManager {
         }
         const rect = embedEl.getBoundingClientRect();
         if (rect.width === 0 && rect.height === 0) return false;
-        if (rect.bottom < 0 || rect.top > window.innerHeight) return false;
-        if (rect.right < 0 || rect.left > window.innerWidth) return false;
+        const scrollerRect = this.view.scrollDOM.getBoundingClientRect();
+        if (rect.bottom <= scrollerRect.top || rect.top >= scrollerRect.bottom) return false;
+        if (rect.right <= scrollerRect.left || rect.left >= scrollerRect.right) return false;
         return true;
     }
 }

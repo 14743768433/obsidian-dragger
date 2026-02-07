@@ -1,5 +1,5 @@
 import { EditorView } from '@codemirror/view';
-import { BlockInfo } from '../../types';
+import { BlockInfo, BlockType } from '../../types';
 import { DocLike, ParsedLine } from '../core/protocol-types';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 import { isPointInsideRenderedTableCell } from '../core/table-guard';
@@ -65,7 +65,7 @@ export class DropTargetCalculator {
             }
         }
 
-        const vertical = this.computeVerticalTarget(info);
+        const vertical = this.computeVerticalTarget(info, dragSource);
         if (!vertical) return null;
         if (dragSource && this.deps.shouldPreventDropIntoDifferentContainer(dragSource, vertical.targetLineNumber)) {
             return null;
@@ -109,7 +109,10 @@ export class DropTargetCalculator {
         };
     }
 
-    private computeVerticalTarget(info: { clientX: number; clientY: number }): {
+    private computeVerticalTarget(
+        info: { clientX: number; clientY: number },
+        dragSource: BlockInfo | null
+    ): {
         line: { number: number; text: string; from: number; to: number };
         targetLineNumber: number;
         forcedLineNumber: number | null;
@@ -122,9 +125,11 @@ export class DropTargetCalculator {
         if (pos === null) return null;
 
         const line = this.view.state.doc.lineAt(pos);
+        const allowListChildIntent = !!dragSource && dragSource.type === BlockType.ListItem;
         const lineBoundsForSnap = this.listDropTargetCalculator.getListMarkerBounds(line.number);
         const lineParsedForSnap = this.deps.parseLineWithQuote(line.text);
-        const childIntentOnLine = !!lineBoundsForSnap
+        const childIntentOnLine = allowListChildIntent
+            && !!lineBoundsForSnap
             && lineParsedForSnap.isListItem
             && info.clientX >= lineBoundsForSnap.contentStartX + 2;
 

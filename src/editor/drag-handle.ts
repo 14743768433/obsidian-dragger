@@ -125,7 +125,11 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     isBlockInsideRenderedTableCell: (blockInfo) =>
                         isPosInsideRenderedTableCell(this.view, blockInfo.from, { skipLayoutRead: true }),
                     beginPointerDragSession: (blockInfo) => {
-                        this.setActiveVisibleHandle(null);
+                        const lineNumber = blockInfo.startLine + 1;
+                        if (lineNumber >= 1 && lineNumber <= this.view.state.doc.lines) {
+                            this.setHoveredLineNumber(lineNumber);
+                        }
+                        this.setActiveVisibleHandle(null, { preserveHoveredLineNumber: true });
                         beginDragSession(blockInfo, this.view);
                     },
                     finishDragSession: () => {
@@ -166,8 +170,15 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     },
                 });
                 handle.addEventListener('pointerdown', (e: PointerEvent) => {
+                    const blockInfo = getBlockInfo();
                     this.setActiveVisibleHandle(handle);
-                    this.dragEventHandler.startPointerDragFromHandle(handle, e, () => getBlockInfo());
+                    if (blockInfo) {
+                        const lineNumber = blockInfo.startLine + 1;
+                        if (lineNumber >= 1 && lineNumber <= this.view.state.doc.lines) {
+                            this.setHoveredLineNumber(lineNumber);
+                        }
+                    }
+                    this.dragEventHandler.startPointerDragFromHandle(handle, e, () => blockInfo ?? getBlockInfo());
                 });
                 return handle;
             }
@@ -209,8 +220,11 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             }
 
             private handleDocumentPointerMove(e: PointerEvent): void {
+                if (document.body.classList.contains('dnd-mobile-gesture-lock')) {
+                    return;
+                }
                 if (document.body.classList.contains('dnd-dragging')) {
-                    this.setActiveVisibleHandle(null);
+                    this.setActiveVisibleHandle(null, { preserveHoveredLineNumber: true });
                     return;
                 }
 
@@ -241,15 +255,26 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.currentHoveredLineNumber = lineNumber;
             }
 
-            private setActiveVisibleHandle(handle: HTMLElement | null): void {
-                if (this.activeVisibleHandle === handle) return;
+            private setActiveVisibleHandle(
+                handle: HTMLElement | null,
+                options?: { preserveHoveredLineNumber?: boolean }
+            ): void {
+                const preserveHoveredLineNumber = options?.preserveHoveredLineNumber === true;
+                if (this.activeVisibleHandle === handle) {
+                    if (!handle && !preserveHoveredLineNumber) {
+                        this.clearHoveredLineNumber();
+                    }
+                    return;
+                }
                 if (this.activeVisibleHandle) {
                     this.activeVisibleHandle.classList.remove('is-visible');
                 }
 
                 this.activeVisibleHandle = handle;
                 if (!handle) {
-                    this.clearHoveredLineNumber();
+                    if (!preserveHoveredLineNumber) {
+                        this.clearHoveredLineNumber();
+                    }
                     return;
                 }
 

@@ -105,4 +105,19 @@ describe('DropTargetCalculator', () => {
 
         expect(target).toBeNull();
     });
+
+    it('allows non-list blocks to target the line above a list item', () => {
+        mockElementFromPoint(null);
+        const view = createViewStub('- first\n- second');
+        const calculator = new DropTargetCalculator(view, createDeps());
+
+        const target = calculator.getDropTargetInfo({
+            clientX: 40,
+            clientY: 5,
+            dragSource: createSourceBlock(),
+        });
+
+        expect(target).not.toBeNull();
+        expect(target?.lineNumber).toBe(1);
+    });
 });

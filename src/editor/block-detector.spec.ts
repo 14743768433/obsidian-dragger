@@ -66,6 +66,26 @@ describe('block-detector', () => {
         expect(block?.endLine).toBe(2);
     });
 
+    it('detects horizontal rule block with trailing spaces', () => {
+        const state = createState('---   \nnext');
+        const block = detectBlock(state, 1);
+
+        expect(block).not.toBeNull();
+        expect(block?.type).toBe(BlockType.HorizontalRule);
+        expect(block?.startLine).toBe(0);
+        expect(block?.endLine).toBe(0);
+    });
+
+    it('detects spaced horizontal rule syntax instead of list item', () => {
+        const state = createState('- - -\nnext');
+        const block = detectBlock(state, 1);
+
+        expect(block).not.toBeNull();
+        expect(block?.type).toBe(BlockType.HorizontalRule);
+        expect(block?.startLine).toBe(0);
+        expect(block?.endLine).toBe(0);
+    });
+
     it('returns heading section range until next same-or-higher heading', () => {
         const state = createState('# H1\nparagraph\n## H2\nsub\n# H1-2\ntail');
         const range = getHeadingSectionRange(state.doc, 1);

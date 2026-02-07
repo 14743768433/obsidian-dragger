@@ -44,20 +44,17 @@
     opacity: 0.5;
 }
 
+.markdown-source-view.mod-cm6 .cm-editor.dnd-root-editor {
+    position: relative;
+}
+
 /* 仅主编辑器行参与手柄定位，避免影响嵌套编辑器（如表格单元格） */
 .markdown-source-view.mod-cm6 .cm-editor.dnd-root-editor .cm-content.dnd-main-content > .cm-line {
     position: relative;
     overflow: visible;
 }
 
-/* 嵌入块的手柄样式修正（固定定位，避免被裁剪） */
-.dnd-embed-handle {
-    position: fixed;
-    left: 0;
-    top: 0;
-    transform: none;
-}
-
+/* Horizontal rule lines sometimes render a wide overlay that can swallow handle hit-testing. */
 .dnd-line-number-hover-hidden,
 .dnd-drag-source-line-number {
     color: transparent !important;
