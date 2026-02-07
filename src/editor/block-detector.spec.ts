@@ -1,7 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { BlockType } from '../types';
-import { detectBlock } from './block-detector';
+import { detectBlock, getHeadingSectionRange } from './block-detector';
 
 function createState(doc: string): EditorState {
     return EditorState.create({ doc });
@@ -64,5 +64,19 @@ describe('block-detector', () => {
         expect(block?.type).toBe(BlockType.Callout);
         expect(block?.startLine).toBe(0);
         expect(block?.endLine).toBe(2);
+    });
+
+    it('returns heading section range until next same-or-higher heading', () => {
+        const state = createState('# H1\nparagraph\n## H2\nsub\n# H1-2\ntail');
+        const range = getHeadingSectionRange(state.doc, 1);
+
+        expect(range).toEqual({ startLine: 1, endLine: 4 });
+    });
+
+    it('returns nested heading section range for child heading', () => {
+        const state = createState('# H1\nintro\n## H2\ndetail\n### H3\ndeep\n## H2 next');
+        const range = getHeadingSectionRange(state.doc, 3);
+
+        expect(range).toEqual({ startLine: 3, endLine: 6 });
     });
 });

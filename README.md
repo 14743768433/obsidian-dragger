@@ -57,13 +57,13 @@ Then enable the plugin in Obsidian.
 
 ## Internal Architecture (for contributors)
 - `src/editor/drag-handle.ts`: plugin wiring, view lifecycle, event orchestration
-- `src/editor/dnd/session.ts`: drag session state and shared visual cleanup
-- `src/editor/dnd/selectors.ts`: shared selectors/classes constants
-- `src/editor/dnd/table-guard.ts`: rendered table-cell interaction guard
-- `src/editor/dnd/line-parser.ts`: quote/list/indent parsing utilities
-- `src/editor/dnd/container-policy.ts`: container isolation policy (list/quote/callout)
-- `src/editor/dnd/drop-target.ts`: insertion anchor and geometry helpers
-- `src/editor/dnd/block-mutation.ts`: block text rewrite and insertion text building
+- `src/editor/core/session.ts`: drag session state and shared visual cleanup
+- `src/editor/core/selectors.ts`: shared selectors/classes constants
+- `src/editor/core/table-guard.ts`: rendered table-cell interaction guard
+- `src/editor/core/line-parser.ts`: quote/list/indent parsing utilities
+- `src/editor/core/container-policy.ts`: container isolation policy (list/quote/callout)
+- `src/editor/core/drop-target.ts`: insertion anchor and geometry helpers
+- `src/editor/core/block-mutation.ts`: block text rewrite and insertion text building
 
 The main rule is: visual decisions and behavioral decisions should come from the same policy path, to avoid “indicator shown but drop blocked” mismatches.
 

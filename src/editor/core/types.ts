@@ -1,5 +1,13 @@
 export type MarkerType = 'ordered' | 'unordered' | 'task';
 
+export interface ListContextValue {
+    indentWidth: number;
+    indentRaw: string;
+    markerType: MarkerType;
+}
+
+export type ListContext = ListContextValue | null;
+
 export interface ParsedListLine {
     isListItem: boolean;
     indentRaw: string;
@@ -31,6 +39,17 @@ export interface DocLineLike {
 export interface DocLike {
     lines: number;
     line: (n: number) => DocLineLike;
+}
+
+export interface DocLineWithRange extends DocLineLike {
+    from: number;
+    to: number;
+}
+
+export interface DocLikeWithRange extends DocLike {
+    length: number;
+    line: (n: number) => DocLineWithRange;
+    sliceString: (from: number, to: number) => string;
 }
 
 export interface StateWithDoc {

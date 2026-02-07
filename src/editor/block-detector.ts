@@ -1,6 +1,30 @@
 import { EditorState, Text } from '@codemirror/state';
 import { BlockType, BlockInfo } from '../types';
 
+export function getHeadingLevel(lineText: string): number | null {
+    const trimmed = lineText.trimStart();
+    const match = trimmed.match(/^(#{1,6})\s+/);
+    if (!match) return null;
+    return match[1].length;
+}
+
+export function getHeadingSectionRange(doc: Text, lineNumber: number): { startLine: number; endLine: number } | null {
+    if (lineNumber < 1 || lineNumber > doc.lines) return null;
+    const currentHeadingLevel = getHeadingLevel(doc.line(lineNumber).text);
+    if (!currentHeadingLevel) return null;
+
+    let endLine = lineNumber;
+    for (let i = lineNumber + 1; i <= doc.lines; i++) {
+        const nextHeadingLevel = getHeadingLevel(doc.line(i).text);
+        if (nextHeadingLevel !== null && nextHeadingLevel <= currentHeadingLevel) {
+            break;
+        }
+        endLine = i;
+    }
+
+    return { startLine: lineNumber, endLine };
+}
+
 /**
  * 检测指定行的块类型
  */
@@ -8,7 +32,7 @@ export function detectBlockType(lineText: string): BlockType {
     const trimmed = lineText.trimStart();
 
     // 标题
-    if (/^#{1,6}\s/.test(trimmed)) {
+    if (getHeadingLevel(lineText) !== null) {
         return BlockType.Heading;
     }
 

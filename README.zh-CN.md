@@ -57,13 +57,13 @@
 
 ## 内部架构（贡献者）
 - `src/editor/drag-handle.ts`：插件装配、View 生命周期、事件编排
-- `src/editor/dnd/session.ts`：拖拽会话状态与视觉清理
-- `src/editor/dnd/selectors.ts`：统一的选择器与 class 常量
-- `src/editor/dnd/table-guard.ts`：渲染态表格单元格防护
-- `src/editor/dnd/line-parser.ts`：引用/列表/缩进解析
-- `src/editor/dnd/container-policy.ts`：容器隔离策略（列表/引用/callout）
-- `src/editor/dnd/drop-target.ts`：落点与几何计算
-- `src/editor/dnd/block-mutation.ts`：块移动时文本重写与插入文本构建
+- `src/editor/core/session.ts`：拖拽会话状态与视觉清理
+- `src/editor/core/selectors.ts`：统一的选择器与 class 常量
+- `src/editor/core/table-guard.ts`：渲染态表格单元格防护
+- `src/editor/core/line-parser.ts`：引用/列表/缩进解析
+- `src/editor/core/container-policy.ts`：容器隔离策略（列表/引用/callout）
+- `src/editor/core/drop-target.ts`：落点与几何计算
+- `src/editor/core/block-mutation.ts`：块移动时文本重写与插入文本构建
 
 核心约束：视觉判定与功能判定走同一条策略路径，避免“有定位线但实际不能放”的分叉。
 

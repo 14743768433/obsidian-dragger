@@ -1,11 +1,5 @@
 import { EditorView } from '@codemirror/view';
 
-export function clampNumber(value: number, min: number, max: number): number {
-    if (value < min) return min;
-    if (value > max) return max;
-    return value;
-}
-
 export function getLineRect(view: EditorView, lineNumber: number): { left: number; width: number } | undefined {
     const doc = view.state.doc;
     if (lineNumber < 1 || lineNumber > doc.lines) return undefined;

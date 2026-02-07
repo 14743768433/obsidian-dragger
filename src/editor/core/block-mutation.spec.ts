@@ -31,6 +31,23 @@ describe('block-mutation', () => {
         }
     );
 
+    it('does not auto-adjust quote depth for callout blocks', () => {
+        const adjustBlockquoteDepth = vi.fn((text: string) => text.replace(/^> /gm, ''));
+        const result = buildInsertText({
+            doc: createDoc(['plain context']),
+            sourceBlockType: BlockType.Callout,
+            sourceContent: '> [!TIP]\n> inside',
+            targetLineNumber: 2,
+            getBlockquoteDepthContext: () => 0,
+            getContentQuoteDepth: () => 1,
+            adjustBlockquoteDepth,
+            adjustListToTargetContext: (text) => text,
+        });
+
+        expect(adjustBlockquoteDepth).not.toHaveBeenCalled();
+        expect(result).toBe('> [!TIP]\n> inside\n');
+    });
+
     it('adjusts quote depth for normal paragraph moves', () => {
         const adjustBlockquoteDepth = vi.fn((text: string, targetDepth: number) => `${'> '.repeat(targetDepth)}${text}`);
         const result = buildInsertText({

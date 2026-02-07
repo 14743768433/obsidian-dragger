@@ -1,11 +1,5 @@
 import { BlockType } from '../../types';
-import { DocLike, MarkerType, ParsedLine } from './types';
-
-export interface ListContext {
-    indentWidth: number;
-    indentRaw: string;
-    markerType: MarkerType;
-}
+import { DocLike, ListContext, ListContextValue, MarkerType, ParsedLine } from './types';
 
 export function stripBlockquoteDepth(line: string, removeDepth: number): string {
     let remaining = line;
@@ -139,7 +133,7 @@ export function getBoundarySpacing(params: {
 }
 
 export function buildTargetMarker(
-    target: { markerType: MarkerType },
+    target: Pick<ListContextValue, 'markerType'>,
     source: { markerType: MarkerType; marker: string }
 ): string {
     if (target.markerType === 'ordered') return '1. ';
@@ -209,7 +203,7 @@ export function adjustListToTargetContext(params: {
     parseLineWithQuote: (line: string) => ParsedLine;
     getIndentUnitWidth: (sample: string) => number;
     buildIndentStringFromSample: (sample: string, width: number) => string;
-    buildTargetMarker: (target: ListContext, source: { markerType: MarkerType; marker: string }) => string;
+    buildTargetMarker: (target: ListContextValue, source: { markerType: MarkerType; marker: string }) => string;
     listContextLineNumberOverride?: number;
     listIndentDeltaOverride?: number;
     listTargetIndentWidthOverride?: number;
@@ -298,7 +292,8 @@ export function buildInsertText(params: {
     let text = sourceContent;
     const shouldLockQuoteDepth = sourceBlockType === BlockType.CodeBlock
         || sourceBlockType === BlockType.Table
-        || sourceBlockType === BlockType.MathBlock;
+        || sourceBlockType === BlockType.MathBlock
+        || sourceBlockType === BlockType.Callout;
     if (!shouldLockQuoteDepth) {
         const targetQuoteDepth = boundarySpacing.resetQuoteDepth
             ? 0
