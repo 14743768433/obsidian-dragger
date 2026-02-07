@@ -105,22 +105,29 @@ function splitBlockquotePrefix(lineText: string): { prefix: string; rest: string
     return { prefix, rest: lineText.slice(prefix.length), depth };
 }
 
-function isCalloutHeader(rest: string): boolean {
-    return rest.trimStart().startsWith('[!');
+function isCalloutHeader(restText: string): boolean {
+    return restText.trimStart().startsWith('[!');
 }
 
-function isBlockquoteStartLine(doc: Text, lineNumber: number, depth: number): boolean {
-    for (let i = lineNumber - 1; i >= 1; i--) {
-        const text = doc.line(i).text;
-        if (text.trim().length === 0) continue;
-        const info = splitBlockquotePrefix(text);
-        if (info.depth === 0) return true;
-        return info.depth < depth;
+function isInsideCalloutContainer(doc: Text, lineNumber: number, depth: number): boolean {
+    for (let i = lineNumber; i >= 1; i--) {
+        const info = splitBlockquotePrefix(doc.line(i).text);
+        if (info.depth === 0 || info.depth < depth) break;
+        if (isCalloutHeader(info.rest)) return true;
     }
-    return true;
+    return false;
 }
 
 function getBlockquoteContainerRange(doc: Text, lineNumber: number, depth: number): { startLine: number; endLine: number } {
+    let startLine = lineNumber;
+    for (let i = lineNumber - 1; i >= 1; i--) {
+        const prevText = doc.line(i).text;
+        const info = splitBlockquotePrefix(prevText);
+        if (info.depth === 0) break;
+        if (info.depth < depth) break;
+        startLine = i;
+    }
+
     let endLine = lineNumber;
     for (let i = lineNumber + 1; i <= doc.lines; i++) {
         const nextText = doc.line(i).text;
@@ -129,95 +136,7 @@ function getBlockquoteContainerRange(doc: Text, lineNumber: number, depth: numbe
         if (info.depth < depth) break;
         endLine = i;
     }
-    return { startLine: lineNumber, endLine };
-}
-
-function getListItemOwnRangeInBlockquote(doc: Text, lineNumber: number, tabSize: number, depth: number): { startLine: number; endLine: number } {
-    const lineText = doc.line(lineNumber).text;
-    const currentInfo = parseListMarker(splitBlockquotePrefix(lineText).rest, tabSize);
-    const currentIndent = currentInfo.indentWidth;
-    let endLine = lineNumber;
-    let sawBlank = false;
-
-    for (let i = lineNumber + 1; i <= doc.lines; i++) {
-        const nextLine = doc.line(i);
-        const nextInfoQuote = splitBlockquotePrefix(nextLine.text);
-        if (nextInfoQuote.depth === 0 || nextInfoQuote.depth < depth) break;
-        const nextText = nextInfoQuote.rest;
-
-        if (nextText.trim().length === 0) {
-            const lookahead = findNextNonEmptyLineInBlockquote(doc, i + 1, tabSize, depth);
-            if (!lookahead || lookahead.indentWidth <= currentIndent || lookahead.isListItem) {
-                break;
-            }
-            endLine = i;
-            sawBlank = true;
-            continue;
-        }
-
-        const nextInfo = parseListMarker(nextText, tabSize);
-        if (nextInfo.isListItem) {
-            break;
-        }
-
-        const nextIndent = getIndentWidth(nextText, tabSize);
-        const nextType = detectBlockType(nextText);
-        if (nextType !== BlockType.Paragraph) {
-            break;
-        }
-        if (!sawBlank || nextIndent > currentIndent) {
-            endLine = i;
-            continue;
-        }
-
-        break;
-    }
-
-    return { startLine: lineNumber, endLine };
-}
-
-function getListItemSubtreeRangeInBlockquote(doc: Text, lineNumber: number, tabSize: number, depth: number): { startLine: number; endLine: number } {
-    const lineText = doc.line(lineNumber).text;
-    const currentInfo = parseListMarker(splitBlockquotePrefix(lineText).rest, tabSize);
-    const currentIndent = currentInfo.indentWidth;
-    let endLine = lineNumber;
-    let sawBlank = false;
-
-    for (let i = lineNumber + 1; i <= doc.lines; i++) {
-        const nextLine = doc.line(i);
-        const nextInfoQuote = splitBlockquotePrefix(nextLine.text);
-        if (nextInfoQuote.depth === 0 || nextInfoQuote.depth < depth) break;
-        const nextText = nextInfoQuote.rest;
-
-        if (nextText.trim().length === 0) {
-            const lookahead = findNextNonEmptyLineInBlockquote(doc, i + 1, tabSize, depth);
-            if (!lookahead || (lookahead.isListItem && lookahead.indentWidth <= currentIndent) || lookahead.indentWidth <= currentIndent) {
-                break;
-            }
-            endLine = i;
-            sawBlank = true;
-            continue;
-        }
-
-        const nextInfo = parseListMarker(nextText, tabSize);
-        if (nextInfo.isListItem && nextInfo.indentWidth <= currentIndent) {
-            break;
-        }
-
-        const nextIndent = getIndentWidth(nextText, tabSize);
-        const nextType = detectBlockType(nextText);
-        if (nextType !== BlockType.Paragraph && !nextInfo.isListItem) {
-            break;
-        }
-        if (nextInfo.isListItem || !sawBlank || nextIndent > currentIndent) {
-            endLine = i;
-            continue;
-        }
-
-        break;
-    }
-
-    return { startLine: lineNumber, endLine };
+    return { startLine, endLine };
 }
 
 function getListItemOwnRange(doc: Text, lineNumber: number, tabSize: number): { startLine: number; endLine: number } {
@@ -252,7 +171,7 @@ function getListItemOwnRange(doc: Text, lineNumber: number, tabSize: number): { 
         if (nextType !== BlockType.Paragraph) {
             break;
         }
-        if (!sawBlank || nextIndent > currentIndent) {
+        if (nextIndent > currentIndent) {
             endLine = i;
             continue;
         }
@@ -294,7 +213,7 @@ function getListItemSubtreeRange(doc: Text, lineNumber: number, tabSize: number)
         if (nextType !== BlockType.Paragraph && !nextInfo.isListItem) {
             break;
         }
-        if (nextInfo.isListItem || !sawBlank || nextIndent > currentIndent) {
+        if (nextInfo.isListItem || nextIndent > currentIndent) {
             endLine = i;
             continue;
         }
@@ -311,23 +230,6 @@ function findNextNonEmptyLine(doc: Text, fromLine: number, tabSize: number): { i
         if (text.trim().length === 0) continue;
         const info = parseListMarker(text, tabSize);
         return { isListItem: info.isListItem, indentWidth: info.indentWidth };
-    }
-    return null;
-}
-
-function findNextNonEmptyLineInBlockquote(
-    doc: Text,
-    fromLine: number,
-    tabSize: number,
-    minDepth: number
-): { isListItem: boolean; indentWidth: number } | null {
-    for (let i = fromLine; i <= doc.lines; i++) {
-        const text = doc.line(i).text;
-        const info = splitBlockquotePrefix(text);
-        if (info.depth === 0 || info.depth < minDepth) return null;
-        if (info.rest.trim().length === 0) continue;
-        const parsed = parseListMarker(info.rest, tabSize);
-        return { isListItem: parsed.isListItem, indentWidth: parsed.indentWidth };
     }
     return null;
 }
@@ -491,22 +393,17 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
 
     if (blockType === BlockType.Blockquote) {
         const quoteInfo = splitBlockquotePrefix(lineText);
-        const restType = detectBlockType(quoteInfo.rest);
-        const isHeader = isCalloutHeader(quoteInfo.rest) || isBlockquoteStartLine(doc, lineNumber, quoteInfo.depth);
-
-        if (isHeader) {
+        const inCallout = isInsideCalloutContainer(doc, lineNumber, quoteInfo.depth);
+        if (inCallout) {
             const range = getBlockquoteContainerRange(doc, lineNumber, quoteInfo.depth);
             startLine = range.startLine;
             endLine = range.endLine;
-        } else if (restType === BlockType.ListItem) {
-            const range = getListItemSubtreeRangeInBlockquote(doc, lineNumber, tabSize, quoteInfo.depth);
-            startLine = range.startLine;
-            endLine = range.endLine;
-            blockType = BlockType.ListItem;
+            blockType = BlockType.Callout;
         } else {
+            // Regular blockquotes are line-level blocks so sibling lines can be reordered.
             startLine = lineNumber;
             endLine = lineNumber;
-            blockType = BlockType.Paragraph;
+            blockType = BlockType.Blockquote;
         }
     }
 
@@ -565,13 +462,7 @@ export function getListItemOwnRangeForHandle(state: EditorState, lineNumber: num
     if (blockType === BlockType.ListItem) {
         return getListItemOwnRange(doc, lineNumber, tabSize);
     }
-    if (blockType !== BlockType.Blockquote) return null;
-
-    const quoteInfo = splitBlockquotePrefix(lineText);
-    if (quoteInfo.depth === 0) return null;
-    const restType = detectBlockType(quoteInfo.rest);
-    if (restType !== BlockType.ListItem) return null;
-    return getListItemOwnRangeInBlockquote(doc, lineNumber, tabSize, quoteInfo.depth);
+    return null;
 }
 
 /**

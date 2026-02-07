@@ -72,6 +72,11 @@ type EmbedHandleEntry = {
     hide: (e: MouseEvent) => void;
 };
 
+type PointerDragState = {
+    sourceBlock: BlockInfo;
+    pointerId: number;
+};
+
 function startDragWithBlockInfo(e: DragEvent, blockInfo: BlockInfo, handle?: HTMLElement | null): void {
     if (!e.dataTransfer) return;
     setActiveDragSourceBlock(blockInfo);
@@ -175,6 +180,11 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             onScrollOrResize: () => void;
             onDeactivate: () => void;
             lastDropTargetLineNumber: number | null;
+            pointerDragState: PointerDragState | null;
+            pointerListenersAttached: boolean;
+            onPointerMove: (e: PointerEvent) => void;
+            onPointerUp: (e: PointerEvent) => void;
+            onPointerCancel: (e: PointerEvent) => void;
 
             constructor(view: EditorView) {
                 this.view = view;
@@ -197,6 +207,11 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 this.pendingDragInfo = null;
                 this.rafId = null;
                 this.pendingEmbedScan = false;
+                this.pointerDragState = null;
+                this.pointerListenersAttached = false;
+                this.onPointerMove = (e: PointerEvent) => this.handlePointerMove(e);
+                this.onPointerUp = (e: PointerEvent) => this.handlePointerUp(e);
+                this.onPointerCancel = (e: PointerEvent) => this.handlePointerCancel(e);
                 this.decorations = this.buildDecorations(view);
                 this.setupDropListeners(view);
                 this.setupEmbedBlockObserver(view);
@@ -351,6 +366,8 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                             this.embedHandles.set(embedEl, entry);
                         }
 
+                        entry.handle.setAttribute('data-block-start', String(block.startLine));
+                        entry.handle.setAttribute('data-block-end', String(block.endLine));
                         this.positionEmbedHandle(embedEl, entry.handle);
                     }
                 });
@@ -486,6 +503,10 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     hideDropVisuals();
                 });
 
+                handle.addEventListener('pointerdown', (e: PointerEvent) => {
+                    this.startPointerDragFromHandle(view, handle, e, () => getBlockInfo());
+                });
+
                 return handle;
             }
 
@@ -495,6 +516,16 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     if (!e.dataTransfer) return false;
                     return Array.from(e.dataTransfer.types).includes('application/dnd-block');
                 };
+
+                editorDom.addEventListener('pointerdown', (e: PointerEvent) => {
+                    const target = e.target as HTMLElement | null;
+                    if (!target) return;
+                    const handle = target.closest('.dnd-drag-handle') as HTMLElement | null;
+                    if (!handle) return;
+                    // 内嵌块手柄挂在 body，由 createHandleElement 自身监听处理
+                    if (handle.classList.contains('dnd-embed-handle')) return;
+                    this.startPointerDragFromHandle(view, handle, e);
+                }, true);
 
                 // 必须在dragenter时也设置dropEffect来防止光标闪烁
                 editorDom.addEventListener('dragenter', (e: DragEvent) => {
@@ -542,29 +573,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     } catch {
                         return;
                     }
-                    const targetInfo = this.getDropTargetInfo(view, {
-                        clientX: e.clientX,
-                        clientY: e.clientY,
-                        dragSource: sourceBlock,
-                    });
-                    const targetLineNumber = targetInfo?.lineNumber ?? null;
-                    const targetPos = targetLineNumber
-                        ? (targetLineNumber > view.state.doc.lines
-                            ? view.state.doc.length
-                            : view.state.doc.line(targetLineNumber).from)
-                        : view.posAtCoords({ x: e.clientX, y: e.clientY });
-
-                    if (targetPos === null) return;
-
-                    this.moveBlock(
-                        view,
-                        sourceBlock,
-                        targetPos,
-                        targetLineNumber ?? undefined,
-                        targetInfo?.listContextLineNumber,
-                        targetInfo?.listIndentDelta,
-                        targetInfo?.listTargetIndentWidth
-                    );
+                    this.performDropAtPoint(view, sourceBlock, e.clientX, e.clientY);
                     this.hideDropIndicator();
                     clearActiveDragSourceBlock();
                 }, true);
@@ -572,7 +581,16 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
 
             scheduleDropIndicatorUpdate(view: EditorView, e: DragEvent): void {
                 const dragSource = this.getDragSourceBlock(e);
-                this.pendingDragInfo = { x: e.clientX, y: e.clientY, dragSource };
+                this.scheduleDropIndicatorUpdateFromPoint(view, e.clientX, e.clientY, dragSource);
+            }
+
+            scheduleDropIndicatorUpdateFromPoint(
+                view: EditorView,
+                clientX: number,
+                clientY: number,
+                dragSource: BlockInfo | null
+            ): void {
+                this.pendingDragInfo = { x: clientX, y: clientY, dragSource };
                 if (this.rafId !== null) return;
                 this.rafId = requestAnimationFrame(() => {
                     this.rafId = null;
@@ -580,6 +598,32 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     if (!pending) return;
                     this.updateDropIndicatorFromPoint(view, pending);
                 });
+            }
+
+            performDropAtPoint(view: EditorView, sourceBlock: BlockInfo, clientX: number, clientY: number): void {
+                const targetInfo = this.getDropTargetInfo(view, {
+                    clientX,
+                    clientY,
+                    dragSource: sourceBlock,
+                });
+                const targetLineNumber = targetInfo?.lineNumber ?? null;
+                const targetPos = targetLineNumber
+                    ? (targetLineNumber > view.state.doc.lines
+                        ? view.state.doc.length
+                        : view.state.doc.line(targetLineNumber).from)
+                    : view.posAtCoords({ x: clientX, y: clientY });
+
+                if (targetPos === null) return;
+
+                this.moveBlock(
+                    view,
+                    sourceBlock,
+                    targetPos,
+                    targetLineNumber ?? undefined,
+                    targetInfo?.listContextLineNumber,
+                    targetInfo?.listIndentDelta,
+                    targetInfo?.listTargetIndentWidth
+                );
             }
 
             updateDropIndicatorFromPoint(view: EditorView, info: { x: number; y: number; dragSource: BlockInfo | null }): void {
@@ -628,6 +672,98 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 this.indicatorEl.style.display = 'none';
                 this.highlightEl.style.display = 'none';
                 this.lastDropTargetLineNumber = null;
+            }
+
+            isTouchLikePointer(e: PointerEvent): boolean {
+                return e.pointerType !== 'mouse';
+            }
+
+            attachPointerListeners(): void {
+                if (this.pointerListenersAttached) return;
+                window.addEventListener('pointermove', this.onPointerMove, { passive: false });
+                window.addEventListener('pointerup', this.onPointerUp, { passive: false });
+                window.addEventListener('pointercancel', this.onPointerCancel, { passive: false });
+                this.pointerListenersAttached = true;
+            }
+
+            detachPointerListeners(): void {
+                if (!this.pointerListenersAttached) return;
+                window.removeEventListener('pointermove', this.onPointerMove);
+                window.removeEventListener('pointerup', this.onPointerUp);
+                window.removeEventListener('pointercancel', this.onPointerCancel);
+                this.pointerListenersAttached = false;
+            }
+
+            getBlockInfoForHandle(view: EditorView, handle: HTMLElement): BlockInfo | null {
+                const startAttr = handle.getAttribute('data-block-start');
+                const startLine = startAttr !== null ? Number(startAttr) + 1 : NaN;
+                if (Number.isInteger(startLine) && startLine >= 1 && startLine <= view.state.doc.lines) {
+                    const block = detectBlock(view.state, startLine);
+                    if (block) return block;
+                }
+
+                try {
+                    const pos = view.posAtDOM(handle);
+                    const lineNumber = view.state.doc.lineAt(pos).number;
+                    return detectBlock(view.state, lineNumber);
+                } catch {
+                    return null;
+                }
+            }
+
+            startPointerDragFromHandle(
+                view: EditorView,
+                handle: HTMLElement,
+                e: PointerEvent,
+                getBlockInfo?: () => BlockInfo | null
+            ): void {
+                if (!this.isTouchLikePointer(e)) return;
+                if (this.pointerDragState) return;
+
+                const blockInfo = getBlockInfo ? getBlockInfo() : this.getBlockInfoForHandle(view, handle);
+                if (!blockInfo) return;
+                if (isPosInsideRenderedTableCell(view, blockInfo.from, { skipLayoutRead: true })) return;
+
+                e.preventDefault();
+                e.stopPropagation();
+                this.pointerDragState = { sourceBlock: blockInfo, pointerId: e.pointerId };
+                setActiveDragSourceBlock(blockInfo);
+                document.body.classList.add('dnd-dragging');
+                this.attachPointerListeners();
+                this.scheduleDropIndicatorUpdateFromPoint(view, e.clientX, e.clientY, blockInfo);
+            }
+
+            handlePointerMove(e: PointerEvent): void {
+                const state = this.pointerDragState;
+                if (!state || e.pointerId !== state.pointerId) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.scheduleDropIndicatorUpdateFromPoint(this.view, e.clientX, e.clientY, state.sourceBlock);
+            }
+
+            handlePointerUp(e: PointerEvent): void {
+                const state = this.pointerDragState;
+                if (!state || e.pointerId !== state.pointerId) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.performDropAtPoint(this.view, state.sourceBlock, e.clientX, e.clientY);
+                this.pointerDragState = null;
+                this.detachPointerListeners();
+                this.hideDropIndicator();
+                clearActiveDragSourceBlock();
+                document.body.classList.remove('dnd-dragging');
+            }
+
+            handlePointerCancel(e: PointerEvent): void {
+                const state = this.pointerDragState;
+                if (!state || e.pointerId !== state.pointerId) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.pointerDragState = null;
+                this.detachPointerListeners();
+                this.hideDropIndicator();
+                clearActiveDragSourceBlock();
+                document.body.classList.remove('dnd-dragging');
             }
 
             moveBlock(
@@ -1318,32 +1454,6 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                     targetLineNumber = this.clampTargetLineNumber(view.state.doc.lines, line.number + 1);
                 }
 
-                // 禁止在紧凑块（引用/列表）结束行后直接插入非空行，避免 Lazy Continuation
-                const prevLineNumber = targetLineNumber - 1;
-                if (prevLineNumber >= 1) {
-                    const prevBlock = detectBlock(view.state, prevLineNumber);
-                    if (prevBlock) {
-                        const isPrevBlockEnd = prevBlock.endLine + 1 === prevLineNumber;
-                        if (isPrevBlockEnd && (prevBlock.type === BlockType.Blockquote || prevBlock.type === BlockType.Callout || prevBlock.type === BlockType.ListItem)) {
-                            if (targetLineNumber <= view.state.doc.lines) {
-                                const targetText = view.state.doc.line(targetLineNumber).text;
-                                const isTargetBlank = targetText.trim().length === 0;
-                                if (!isTargetBlank) {
-                                    if (prevBlock.type === BlockType.Blockquote || prevBlock.type === BlockType.Callout) {
-                                        return null;
-                                    }
-                                    if (prevBlock.type === BlockType.ListItem) {
-                                        const targetParsed = this.parseLineWithQuote(targetText);
-                                        if (!targetParsed.isListItem) {
-                                            return null;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 return {
                     line,
                     targetLineNumber,
@@ -1427,6 +1537,7 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 lineRectSourceLineNumber?: number;
             } {
                 const { targetLineNumber, lineNumber, forcedLineNumber, childIntentOnLine, dragSource, clientX } = params;
+                if (!dragSource || dragSource.type !== BlockType.ListItem) return {};
                 const doc = view.state.doc;
                 const prevNonEmptyLineNumber = this.getPreviousNonEmptyLineNumber(doc, targetLineNumber - 1);
                 let referenceLineNumber = prevNonEmptyLineNumber ?? 0;
@@ -1535,7 +1646,8 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
                 const indicatorY = this.getInsertionAnchorY(view, vertical.targetLineNumber);
                 if (indicatorY === null) return null;
 
-                const lineRectSourceLineNumber = listTarget.lineRectSourceLineNumber ?? vertical.lineRectSourceLineNumber;
+                const lineRectSourceLineNumber = listTarget.lineRectSourceLineNumber
+                    ?? vertical.lineRectSourceLineNumber;
                 let lineRect = this.getLineRect(view, lineRectSourceLineNumber);
                 if (typeof listTarget.listTargetIndentWidth === 'number') {
                     const indentPos = this.getLineIndentPosByWidth(view, lineRectSourceLineNumber, listTarget.listTargetIndentWidth);
@@ -1627,6 +1739,8 @@ function createDragHandleViewPlugin(plugin: DragNDropPlugin) {
             }
 
             destroy(): void {
+                this.pointerDragState = null;
+                this.detachPointerListeners();
                 this.view.dom.classList.remove(ROOT_EDITOR_CLASS);
                 this.view.contentDOM.classList.remove(MAIN_EDITOR_CONTENT_CLASS);
                 if (this.observer) {

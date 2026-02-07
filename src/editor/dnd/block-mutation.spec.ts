@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BlockType } from '../../types';
-import { buildInsertText } from './block-mutation';
+import { buildInsertText, getBlockquoteDepthContext } from './block-mutation';
 
 function createDoc(lines: string[]) {
     return {
@@ -27,14 +27,14 @@ describe('block-mutation', () => {
             });
 
             expect(adjustBlockquoteDepth).not.toHaveBeenCalled();
-            expect(result).toBe('content line\n');
+            expect(result).toBe('\ncontent line\n');
         }
     );
 
     it('adjusts quote depth for normal paragraph moves', () => {
         const adjustBlockquoteDepth = vi.fn((text: string, targetDepth: number) => `${'> '.repeat(targetDepth)}${text}`);
         const result = buildInsertText({
-            doc: createDoc(['> quote context']),
+            doc: createDoc(['plain context']),
             sourceBlockType: BlockType.Paragraph,
             sourceContent: 'plain',
             targetLineNumber: 2,
@@ -48,7 +48,7 @@ describe('block-mutation', () => {
         expect(result).toBe('> > plain\n');
     });
 
-    it('adds leading and trailing blank separation for table rows', () => {
+    it('adds trailing blank separation for table rows', () => {
         const result = buildInsertText({
             doc: createDoc(['| a |', '| b |']),
             sourceBlockType: BlockType.Table,
@@ -60,6 +60,79 @@ describe('block-mutation', () => {
             adjustListToTargetContext: (text) => text,
         });
 
-        expect(result).toBe('\n| moved |\n\n');
+        expect(result).toBe('| moved |\n\n');
+    });
+
+    it('does not inherit quote depth across a blank separator line', () => {
+        const doc = createDoc(['> quote', '', 'plain']);
+        const depth = getBlockquoteDepthContext(
+            doc,
+            2,
+            (line) => (line.match(/^(\s*> ?)+/)?.[0].match(/>/g) || []).length
+        );
+
+        expect(depth).toBe(0);
+    });
+
+    it('inserts plain content after callout with a separating blank line', () => {
+        const adjustBlockquoteDepth = vi.fn((text: string, targetDepth: number) => `${'> '.repeat(targetDepth)}${text}`);
+        const result = buildInsertText({
+            doc: createDoc(['> [!TIP]', '> inside callout']),
+            sourceBlockType: BlockType.Paragraph,
+            sourceContent: 'outside paragraph',
+            targetLineNumber: 3,
+            getBlockquoteDepthContext: () => 1,
+            getContentQuoteDepth: () => 0,
+            adjustBlockquoteDepth,
+            adjustListToTargetContext: (text) => text,
+        });
+
+        expect(adjustBlockquoteDepth).toHaveBeenCalledWith('outside paragraph', 0, 0);
+        expect(result).toBe('\noutside paragraph\n');
+    });
+
+    it('does not add an extra separator when moving blockquote content after blockquote', () => {
+        const result = buildInsertText({
+            doc: createDoc(['> a', '> b']),
+            sourceBlockType: BlockType.Blockquote,
+            sourceContent: '> c',
+            targetLineNumber: 3,
+            getBlockquoteDepthContext: () => 1,
+            getContentQuoteDepth: () => 1,
+            adjustBlockquoteDepth: (text) => text,
+            adjustListToTargetContext: (text) => text,
+        });
+
+        expect(result).toBe('> c\n');
+    });
+
+    it('adds trailing blank separation when inserting plain text before a table', () => {
+        const result = buildInsertText({
+            doc: createDoc(['| h |', '| - |', '| v |']),
+            sourceBlockType: BlockType.Paragraph,
+            sourceContent: 'before table',
+            targetLineNumber: 1,
+            getBlockquoteDepthContext: () => 0,
+            getContentQuoteDepth: () => 0,
+            adjustBlockquoteDepth: (text) => text,
+            adjustListToTargetContext: (text) => text,
+        });
+
+        expect(result).toBe('before table\n\n');
+    });
+
+    it('does not add leading blank separation when inserting plain text after a table', () => {
+        const result = buildInsertText({
+            doc: createDoc(['| h |', '| - |', '| v |']),
+            sourceBlockType: BlockType.Paragraph,
+            sourceContent: 'after table',
+            targetLineNumber: 4,
+            getBlockquoteDepthContext: () => 0,
+            getContentQuoteDepth: () => 0,
+            adjustBlockquoteDepth: (text) => text,
+            adjustListToTargetContext: (text) => text,
+        });
+
+        expect(result).toBe('after table\n');
     });
 });

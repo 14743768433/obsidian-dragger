@@ -56,9 +56,12 @@ export function getBlockquoteDepthContext(
     lineNumber: number,
     getDepthFromLine: (line: string) => number
 ): number {
-    for (let i = lineNumber; i >= 1; i--) {
+    if (doc.lines <= 0) return 0;
+    const startLine = Math.min(Math.max(1, lineNumber), doc.lines);
+    for (let i = startLine; i >= 1; i--) {
         const text = doc.line(i).text;
-        if (text.trim().length === 0) continue;
+        // Blank line is a hard boundary: content below it should not inherit quote depth.
+        if (text.trim().length === 0) return 0;
         const depth = getDepthFromLine(text);
         if (depth > 0) return depth;
         return 0;
@@ -88,6 +91,51 @@ export function shouldSeparateBlock(type: BlockType, adjacentLineText: string | 
     }
 
     return false;
+}
+
+function isBlockquoteLikeLine(line: string | null): boolean {
+    if (!line) return false;
+    return /^(> ?)+/.test(line.trimStart());
+}
+
+function isTableRowLine(line: string | null): boolean {
+    if (!line) return false;
+    return line.trimStart().startsWith('|');
+}
+
+function getFirstNonEmptyLine(content: string): string | null {
+    const lines = content.split('\n');
+    for (const line of lines) {
+        if (line.trim().length === 0) continue;
+        return line;
+    }
+    return null;
+}
+
+export function getBoundarySpacing(params: {
+    sourceBlockType: BlockType;
+    sourceContent: string;
+    prevText: string | null;
+    nextText: string | null;
+}): {
+    needsLeadingBlank: boolean;
+    needsTrailingBlank: boolean;
+    resetQuoteDepth: boolean;
+} {
+    const { sourceBlockType, sourceContent, prevText, nextText } = params;
+    const firstNonEmptySourceLine = getFirstNonEmptyLine(sourceContent);
+    const sourceIsQuoteLike = sourceBlockType === BlockType.Blockquote
+        || sourceBlockType === BlockType.Callout
+        || isBlockquoteLikeLine(firstNonEmptySourceLine);
+    const prevIsQuoteLike = isBlockquoteLikeLine(prevText);
+
+    const resetQuoteDepth = prevIsQuoteLike && !sourceIsQuoteLike;
+
+    return {
+        needsLeadingBlank: resetQuoteDepth,
+        needsTrailingBlank: isTableRowLine(nextText),
+        resetQuoteDepth,
+    };
 }
 
 export function buildTargetMarker(
@@ -240,13 +288,21 @@ export function buildInsertText(params: {
     const prevLineNumber = Math.min(Math.max(1, targetLineNumber - 1), doc.lines);
     const prevText = targetLineNumber > 1 ? doc.line(prevLineNumber).text : null;
     const nextText = targetLineNumber <= doc.lines ? doc.line(targetLineNumber).text : null;
+    const boundarySpacing = getBoundarySpacing({
+        sourceBlockType,
+        sourceContent,
+        prevText,
+        nextText,
+    });
 
     let text = sourceContent;
     const shouldLockQuoteDepth = sourceBlockType === BlockType.CodeBlock
         || sourceBlockType === BlockType.Table
         || sourceBlockType === BlockType.MathBlock;
     if (!shouldLockQuoteDepth) {
-        const targetQuoteDepth = getBlockquoteDepthContextFn(doc, targetLineNumber);
+        const targetQuoteDepth = boundarySpacing.resetQuoteDepth
+            ? 0
+            : getBlockquoteDepthContextFn(doc, targetLineNumber);
         const sourceQuoteDepth = getContentQuoteDepthFn(sourceContent);
         const isBlockquoteDrag = sourceBlockType === BlockType.Blockquote;
         const effectiveSourceDepth = (isBlockquoteDrag && targetQuoteDepth < sourceQuoteDepth)
@@ -256,11 +312,8 @@ export function buildInsertText(params: {
     }
     text = adjustListToTargetContextFn(text);
 
-    const needsLeadingBlank = shouldSeparateBlock(sourceBlockType, prevText);
-    const needsTrailingBlank = shouldSeparateBlock(sourceBlockType, nextText);
-
-    if (needsLeadingBlank) text = '\n' + text;
-    const trailingNewlines = 1 + (needsTrailingBlank ? 1 : 0);
+    if (boundarySpacing.needsLeadingBlank) text = '\n' + text;
+    const trailingNewlines = 1 + (boundarySpacing.needsTrailingBlank ? 1 : 0);
     text += '\n'.repeat(trailingNewlines);
     return text;
 }
