@@ -1,9 +1,9 @@
 import { EditorView } from '@codemirror/view';
 import { detectBlock } from '../block-detector';
 import { BlockInfo } from '../../types';
-import { shouldPreventDropIntoDifferentContainer as shouldPreventDropIntoContainer } from '../core/container-policy';
+import { shouldPreventDropIntoDifferentContainer as shouldPreventDropIntoContainer } from '../core/container-policies';
 
-export class ContainerDropPolicy {
+export class ContainerPolicyService {
     constructor(private readonly view: EditorView) { }
 
     shouldPreventDropIntoDifferentContainer(

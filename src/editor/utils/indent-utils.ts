@@ -1,5 +1,5 @@
-import { DocLike, ParsedLine } from '../core/types';
-import { parseLineWithQuote as parseLineWithQuoteByTabSize } from '../core/line-parser';
+import { DocLike, ParsedLine } from '../core/protocol-types';
+import { parseLineWithQuote as parseLineWithQuoteByTabSize } from '../core/line-parsing';
 import {
     buildIndentStringFromSample as buildIndentStringFromSampleText,
     getIndentUnitWidth as getIndentUnitWidthFromSample,

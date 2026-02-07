@@ -1,5 +1,5 @@
 import { BlockType } from '../../types';
-import { DocLike } from './types';
+import { DocLike } from './protocol-types';
 import { getBoundarySpacing } from './mutations/spacing-mutation';
 
 export * from './mutations/quote-mutation';

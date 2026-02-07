@@ -1,27 +1,24 @@
-import { EditorView } from '@codemirror/view';
 import { BlockInfo } from '../../types';
-import { buildInsertText as buildInsertTextByPolicy } from '../core/block-mutation';
-import { DocLike, ListContext, ParsedLine } from '../core/types';
 import {
     adjustBlockquoteDepth,
+    adjustListToTargetContext,
+    buildInsertText as buildInsertTextByPolicy,
+    buildTargetMarker,
     getBlockquoteDepthContext,
     getContentQuoteDepth,
-} from '../utils/blockquote-utils';
-import {
-    adjustListToTargetContext,
-    buildTargetMarker,
     getListContext,
-} from '../utils/list-utils';
-import { LineParser } from './LineParser';
+} from '../core/block-mutation';
+import { getBlockquoteDepthFromLine } from '../core/line-parsing';
+import { DocLike, ListContext, ParsedLine } from '../core/protocol-types';
+import { LineParsingService } from './LineParsingService';
 
 export class TextMutationPolicy {
     constructor(
-        private readonly view: EditorView,
-        private readonly lineParser: LineParser
+        private readonly lineParsingService: LineParsingService
     ) { }
 
     parseLineWithQuote(line: string): ParsedLine {
-        return this.lineParser.parseLine(line);
+        return this.lineParsingService.parseLine(line);
     }
 
     getListContext(doc: DocLike, lineNumber: number): ListContext {
@@ -29,11 +26,11 @@ export class TextMutationPolicy {
     }
 
     getIndentUnitWidth(sample: string): number {
-        return this.lineParser.getIndentUnitWidth(sample);
+        return this.lineParsingService.getIndentUnitWidth(sample);
     }
 
     getIndentUnitWidthForDoc(doc: DocLike): number {
-        return this.lineParser.getIndentUnitWidthForDoc(doc, this.view.state);
+        return this.lineParsingService.getIndentUnitWidthForDoc(doc);
     }
 
     buildInsertText(
@@ -50,10 +47,12 @@ export class TextMutationPolicy {
             sourceBlockType: sourceBlock.type,
             sourceContent,
             targetLineNumber,
-            getBlockquoteDepthContext,
-            getContentQuoteDepth,
+            getBlockquoteDepthContext: (activeDoc, lineNumber) =>
+                getBlockquoteDepthContext(activeDoc, lineNumber, getBlockquoteDepthFromLine),
+            getContentQuoteDepth: (activeSourceContent) =>
+                getContentQuoteDepth(activeSourceContent, getBlockquoteDepthFromLine),
             adjustBlockquoteDepth: (content, targetDepth, baseDepth) =>
-                adjustBlockquoteDepth(content, targetDepth, baseDepth),
+                adjustBlockquoteDepth(content, targetDepth, getBlockquoteDepthFromLine, baseDepth),
             adjustListToTargetContext: (content) => adjustListToTargetContext({
                 doc,
                 sourceContent: content,
@@ -61,7 +60,7 @@ export class TextMutationPolicy {
                 parseLineWithQuote: (line) => this.parseLineWithQuote(line),
                 getIndentUnitWidth: (sample) => this.getIndentUnitWidth(sample),
                 buildIndentStringFromSample: (sample, width) =>
-                    this.lineParser.buildIndentStringFromSample(sample, width, this.view.state),
+                    this.lineParsingService.buildIndentStringFromSample(sample, width),
                 buildTargetMarker,
                 listContextLineNumberOverride,
                 listIndentDeltaOverride,

@@ -4,8 +4,8 @@ import {
     getContainerContextAtInsertion,
     shouldPreventDropIntoDifferentContainer,
     type DetectBlockFn,
-} from './container-policy';
-import { DocLike, StateWithDoc } from './types';
+} from './container-policies';
+import { DocLike, StateWithDoc } from './protocol-types';
 
 function createDoc(lines: string[]): DocLike {
     const fromOffsets: number[] = [];
@@ -46,7 +46,7 @@ function mapDetectBlock(map: Record<number, BlockInfo>): DetectBlockFn {
     return (_state, lineNumber) => map[lineNumber] ?? null;
 }
 
-describe('container-policy', () => {
+describe('container-policies', () => {
     it('prevents dropping external block into list container internals', () => {
         const state = createState(['before', '- parent', '  - child', 'after']);
         const listBlock = createBlock(BlockType.ListItem, 1, 2, '- parent\n  - child');

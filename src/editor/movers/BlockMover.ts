@@ -1,6 +1,6 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo } from '../../types';
-import { DocLike, DocLikeWithRange, ListContext, ParsedLine } from '../core/types';
+import { DocLike, DocLikeWithRange, ListContext, ParsedLine } from '../core/protocol-types';
 import { ListRenumberer } from './ListRenumberer';
 
 export interface BlockMoverDeps {

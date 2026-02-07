@@ -1,5 +1,5 @@
 import { EditorView } from '@codemirror/view';
-import { ParsedLine } from '../core/types';
+import { ParsedLine } from '../core/protocol-types';
 
 export interface ListRenumbererDeps {
     view: EditorView;

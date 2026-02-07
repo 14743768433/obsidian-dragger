@@ -1,4 +1,4 @@
-import { DocLike, ListContext, ListContextValue, MarkerType, ParsedLine } from '../types';
+import { DocLike, ListContext, ListContextValue, MarkerType, ParsedLine } from '../protocol-types';
 
 export function buildTargetMarker(
     target: Pick<ListContextValue, 'markerType'>,

@@ -5,9 +5,9 @@ import {
     parseLineWithQuote,
     parseListLine,
     splitBlockquotePrefix,
-} from './line-parser';
+} from './line-parsing';
 
-describe('line-parser', () => {
+describe('line-parsing', () => {
     it('parses task list lines with quote prefix', () => {
         const parsed = parseLineWithQuote('>   - [x] done', 4);
         expect(parsed.quotePrefix).toBe('> ');

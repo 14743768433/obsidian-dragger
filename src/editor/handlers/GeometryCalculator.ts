@@ -8,12 +8,12 @@ import {
     getBlockRect as getBlockRectByRange,
 } from '../core/drop-target';
 import { clampTargetLineNumber } from '../utils/coordinate-utils';
-import { LineParser } from './LineParser';
+import { LineParsingService } from './LineParsingService';
 
 export class GeometryCalculator {
     constructor(
         private readonly view: EditorView,
-        private readonly lineParser: LineParser
+        private readonly lineParsingService: LineParsingService
     ) { }
 
     getAdjustedTargetLocation(
@@ -68,7 +68,7 @@ export class GeometryCalculator {
             this.view,
             lineNumber,
             targetIndentWidth,
-            this.lineParser.getTabSize()
+            this.lineParsingService.getTabSize()
         );
     }
 

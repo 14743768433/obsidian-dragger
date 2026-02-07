@@ -1,6 +1,6 @@
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { DocLike, ParsedLine } from '../core/types';
+import { DocLike, ParsedLine } from '../core/protocol-types';
 import {
     buildIndentStringFromSample,
     getIndentUnitWidth,
@@ -9,7 +9,7 @@ import {
     parseLineWithQuote,
 } from '../utils/indent-utils';
 
-export class LineParser {
+export class LineParsingService {
     constructor(private readonly view: EditorView) { }
 
     getTabSize(state?: EditorState): number {

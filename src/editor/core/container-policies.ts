@@ -1,7 +1,7 @@
 import { BlockInfo, BlockType } from '../../types';
 import { detectBlock } from '../block-detector';
-import { getBlockquoteDepthFromLine } from './line-parser';
-import { DocLike, StateWithDoc } from './types';
+import { getBlockquoteDepthFromLine } from './line-parsing';
+import { DocLike, StateWithDoc } from './protocol-types';
 
 type ContainerType = BlockType.ListItem | BlockType.Blockquote | BlockType.Callout;
 export type DetectBlockFn = (state: StateWithDoc, lineNumber: number) => BlockInfo | null;
