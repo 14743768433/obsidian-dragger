@@ -2,6 +2,12 @@ import { EditorView } from '@codemirror/view';
 import { BlockInfo, BlockType } from '../../types';
 import { validateInPlaceDrop } from '../core/drop-validation';
 import { InsertionRuleRejectReason, InsertionSlotContext } from '../core/insertion-rule-matrix';
+import { getLineMap, LineMap } from '../core/line-map';
+import {
+    createGeometryFrameCache,
+    GeometryFrameCache,
+    getCoordsAtPos,
+} from '../core/drop-target';
 import { DocLike, ListContext, ParsedLine } from '../core/protocol-types';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 import { isPointInsideRenderedTableCell } from '../core/table-guard';
@@ -17,14 +23,26 @@ type DropTargetInfo = {
     highlightRect?: { top: number; left: number; width: number; height: number };
 };
 
+type PerfDurationKey =
+    | 'resolve_total'
+    | 'vertical'
+    | 'container'
+    | 'list_target'
+    | 'in_place'
+    | 'geometry';
+
 export interface DropTargetCalculatorDeps {
     parseLineWithQuote: (line: string) => ParsedLine;
-    getAdjustedTargetLocation: (lineNumber: number, options?: { clientY?: number }) => { lineNumber: number; blockAdjusted: boolean };
+    getAdjustedTargetLocation: (
+        lineNumber: number,
+        options?: { clientY?: number; frameCache?: GeometryFrameCache }
+    ) => { lineNumber: number; blockAdjusted: boolean };
     clampTargetLineNumber: (totalLines: number, lineNumber: number) => number;
     getPreviousNonEmptyLineNumber: (doc: DocLike, lineNumber: number) => number | null;
     resolveDropRuleAtInsertion: (
         sourceBlock: BlockInfo,
-        targetLineNumber: number
+        targetLineNumber: number,
+        options?: { lineMap?: LineMap }
     ) => {
         slotContext: InsertionSlotContext;
         decision: { allowDrop: boolean; rejectReason?: string | null };
@@ -33,16 +51,30 @@ export interface DropTargetCalculatorDeps {
     getIndentUnitWidth: (sample: string) => number;
     getBlockInfoForEmbed: (embedEl: HTMLElement) => BlockInfo | null;
     getIndentUnitWidthForDoc: (doc: DocLike) => number;
-    getLineRect: (lineNumber: number) => { left: number; width: number } | undefined;
-    getInsertionAnchorY: (lineNumber: number) => number | null;
+    getLineRect: (lineNumber: number, frameCache?: GeometryFrameCache) => { left: number; width: number } | undefined;
+    getInsertionAnchorY: (lineNumber: number, frameCache?: GeometryFrameCache) => number | null;
     getLineIndentPosByWidth: (lineNumber: number, targetIndentWidth: number) => number | null;
-    getBlockRect: (startLineNumber: number, endLineNumber: number) => { top: number; left: number; width: number; height: number } | undefined;
+    getBlockRect: (
+        startLineNumber: number,
+        endLineNumber: number,
+        frameCache?: GeometryFrameCache
+    ) => { top: number; left: number; width: number; height: number } | undefined;
     clampNumber: (value: number, min: number, max: number) => number;
     onDragTargetEvaluated?: (info: {
         sourceBlock: BlockInfo | null;
         pointerType: string | null;
         validation: DropValidationResult;
     }) => void;
+    recordPerfDuration?: (key: PerfDurationKey, durationMs: number) => void;
+    incrementPerfCounter?: (
+        key:
+            | 'resolve_cache_hits'
+            | 'resolve_cache_misses'
+            | 'list_ancestor_scan_steps'
+            | 'list_parent_scan_steps'
+            | 'highlight_scan_lines',
+        delta?: number
+    ) => void;
 }
 
 export type DropRejectReason =
@@ -68,6 +100,11 @@ export type DropValidationResult = {
 
 export class DropTargetCalculator {
     private readonly listDropTargetCalculator: ListDropTargetCalculator;
+    private lastResolvedCache: {
+        state: unknown;
+        key: string;
+        result: DropValidationResult;
+    } | null = null;
 
     constructor(
         private readonly view: EditorView,
@@ -78,6 +115,7 @@ export class DropTargetCalculator {
             getPreviousNonEmptyLineNumber: this.deps.getPreviousNonEmptyLineNumber,
             getIndentUnitWidthForDoc: this.deps.getIndentUnitWidthForDoc,
             getBlockRect: this.deps.getBlockRect,
+            incrementPerfCounter: this.deps.incrementPerfCounter,
         });
     }
 
@@ -98,39 +136,88 @@ export class DropTargetCalculator {
     }
 
     resolveValidatedDropTarget(info: { clientX: number; clientY: number; dragSource?: BlockInfo | null; pointerType?: string | null }): DropValidationResult {
-        if (isPointInsideRenderedTableCell(this.view, info.clientX, info.clientY)) {
-            const result = { allowed: false, reason: 'table_cell' } as const;
-            this.deps.onDragTargetEvaluated?.({
-                sourceBlock: info.dragSource ?? null,
-                pointerType: info.pointerType ?? null,
-                validation: result,
-            });
-            return result;
-        }
+        const startedAt = this.now();
         const dragSource = info.dragSource ?? null;
+        const pointerType = info.pointerType ?? null;
+        const cacheKey = this.buildResolveCacheKey(info.clientX, info.clientY, dragSource, pointerType);
+        if (
+            this.lastResolvedCache
+            && this.lastResolvedCache.state === this.view.state
+            && this.lastResolvedCache.key === cacheKey
+        ) {
+            this.deps.incrementPerfCounter?.('resolve_cache_hits', 1);
+            const cached = this.lastResolvedCache.result;
+            this.deps.onDragTargetEvaluated?.({
+                sourceBlock: dragSource,
+                pointerType,
+                validation: cached,
+            });
+            this.deps.recordPerfDuration?.('resolve_total', this.now() - startedAt);
+            return cached;
+        }
+        this.deps.incrementPerfCounter?.('resolve_cache_misses', 1);
+
+        const frameCache = createGeometryFrameCache();
+        const lineMap = getLineMap(this.view.state);
+
+        const result = this.resolveValidatedDropTargetInternal({
+            info,
+            dragSource,
+            pointerType,
+            frameCache,
+            lineMap,
+        });
+        this.lastResolvedCache = {
+            state: this.view.state,
+            key: cacheKey,
+            result,
+        };
+        this.deps.recordPerfDuration?.('resolve_total', this.now() - startedAt);
+        this.deps.onDragTargetEvaluated?.({
+            sourceBlock: dragSource,
+            pointerType,
+            validation: result,
+        });
+        return result;
+    }
+
+    private resolveValidatedDropTargetInternal(params: {
+        info: { clientX: number; clientY: number; dragSource?: BlockInfo | null; pointerType?: string | null };
+        dragSource: BlockInfo | null;
+        pointerType: string | null;
+        frameCache: GeometryFrameCache;
+        lineMap: ReturnType<typeof getLineMap>;
+    }): DropValidationResult {
+        const { info, dragSource, frameCache, lineMap } = params;
+
+        if (isPointInsideRenderedTableCell(this.view, info.clientX, info.clientY)) {
+            return { allowed: false, reason: 'table_cell' } as const;
+        }
+
         const embedEl = this.getEmbedElementAtPoint(info.clientX, info.clientY);
         if (embedEl) {
             const block = this.deps.getBlockInfoForEmbed(embedEl);
             if (block) {
                 const rect = embedEl.getBoundingClientRect();
                 const showAtBottom = info.clientY > rect.top + rect.height / 2;
-                const lineNumber = this.deps.clampTargetLineNumber(this.view.state.doc.lines, showAtBottom ? block.endLine + 2 : block.startLine + 1);
+                const lineNumber = this.deps.clampTargetLineNumber(
+                    this.view.state.doc.lines,
+                    showAtBottom ? block.endLine + 2 : block.startLine + 1
+                );
+                const containerStartedAt = this.now();
                 const containerRule = dragSource
-                    ? this.deps.resolveDropRuleAtInsertion(dragSource, lineNumber)
+                    ? this.deps.resolveDropRuleAtInsertion(dragSource, lineNumber, { lineMap })
                     : null;
+                this.deps.recordPerfDuration?.('container', this.now() - containerStartedAt);
                 if (containerRule && !containerRule.decision.allowDrop) {
-                    const result = {
+                    return {
                         allowed: false,
                         reason: (containerRule.decision.rejectReason ?? 'container_policy') as DropRejectReason,
                     };
-                    this.deps.onDragTargetEvaluated?.({
-                        sourceBlock: dragSource,
-                        pointerType: info.pointerType ?? null,
-                        validation: result,
-                    });
-                    return result;
                 }
+
                 if (dragSource) {
+                    const inPlaceStartedAt = this.now();
                     const inPlaceValidation = validateInPlaceDrop({
                         doc: this.view.state.doc,
                         sourceBlock: dragSource,
@@ -139,74 +226,53 @@ export class DropTargetCalculator {
                         getListContext: this.deps.getListContext,
                         getIndentUnitWidth: this.deps.getIndentUnitWidth,
                         slotContext: containerRule?.slotContext,
+                        lineMap,
                     });
+                    this.deps.recordPerfDuration?.('in_place', this.now() - inPlaceStartedAt);
                     if (inPlaceValidation.inSelfRange && !inPlaceValidation.allowInPlaceIndentChange) {
-                        const result = {
+                        return {
                             allowed: false,
                             reason: inPlaceValidation.rejectReason ?? 'self_range_blocked',
                         };
-                        this.deps.onDragTargetEvaluated?.({
-                            sourceBlock: dragSource,
-                            pointerType: info.pointerType ?? null,
-                            validation: result,
-                        });
-                        return result;
                     }
                     if (!inPlaceValidation.inSelfRange && inPlaceValidation.rejectReason) {
-                        const result = {
+                        return {
                             allowed: false,
                             reason: inPlaceValidation.rejectReason as DropRejectReason,
                         };
-                        this.deps.onDragTargetEvaluated?.({
-                            sourceBlock: dragSource,
-                            pointerType: info.pointerType ?? null,
-                            validation: result,
-                        });
-                        return result;
                     }
                 }
+
                 const indicatorY = showAtBottom ? rect.bottom : rect.top;
-                const result = {
+                return {
                     allowed: true,
                     targetLineNumber: lineNumber,
                     indicatorY,
                     lineRect: { left: rect.left, width: rect.width },
                 };
-                this.deps.onDragTargetEvaluated?.({
-                    sourceBlock: dragSource,
-                    pointerType: info.pointerType ?? null,
-                    validation: result,
-                });
-                return result;
             }
         }
 
-        const vertical = this.computeVerticalTarget(info, dragSource);
+        const verticalStartedAt = this.now();
+        const vertical = this.computeVerticalTarget(info, dragSource, frameCache);
+        this.deps.recordPerfDuration?.('vertical', this.now() - verticalStartedAt);
         if (!vertical) {
-            const result = { allowed: false, reason: 'no_target' } as const;
-            this.deps.onDragTargetEvaluated?.({
-                sourceBlock: dragSource,
-                pointerType: info.pointerType ?? null,
-                validation: result,
-            });
-            return result;
+            return { allowed: false, reason: 'no_target' } as const;
         }
+
+        const containerStartedAt = this.now();
         const containerRule = dragSource
-            ? this.deps.resolveDropRuleAtInsertion(dragSource, vertical.targetLineNumber)
+            ? this.deps.resolveDropRuleAtInsertion(dragSource, vertical.targetLineNumber, { lineMap })
             : null;
+        this.deps.recordPerfDuration?.('container', this.now() - containerStartedAt);
         if (containerRule && !containerRule.decision.allowDrop) {
-            const result = {
+            return {
                 allowed: false,
                 reason: (containerRule.decision.rejectReason ?? 'container_policy') as DropRejectReason,
             };
-            this.deps.onDragTargetEvaluated?.({
-                sourceBlock: dragSource,
-                pointerType: info.pointerType ?? null,
-                validation: result,
-            });
-            return result;
         }
 
+        const listStartedAt = this.now();
         const listTarget = this.listDropTargetCalculator.computeListTarget({
             targetLineNumber: vertical.targetLineNumber,
             lineNumber: vertical.line.number,
@@ -214,9 +280,13 @@ export class DropTargetCalculator {
             childIntentOnLine: vertical.childIntentOnLine,
             dragSource,
             clientX: info.clientX,
+            frameCache,
+            lineMap,
         });
+        this.deps.recordPerfDuration?.('list_target', this.now() - listStartedAt);
 
         if (dragSource) {
+            const inPlaceStartedAt = this.now();
             const inPlaceValidation = validateInPlaceDrop({
                 doc: this.view.state.doc,
                 sourceBlock: dragSource,
@@ -228,52 +298,38 @@ export class DropTargetCalculator {
                 listContextLineNumberOverride: listTarget.listContextLineNumber,
                 listIndentDeltaOverride: listTarget.listIndentDelta,
                 listTargetIndentWidthOverride: listTarget.listTargetIndentWidth,
+                lineMap,
             });
+            this.deps.recordPerfDuration?.('in_place', this.now() - inPlaceStartedAt);
             if (inPlaceValidation.inSelfRange && !inPlaceValidation.allowInPlaceIndentChange) {
-                const result = {
+                return {
                     allowed: false,
                     reason: inPlaceValidation.rejectReason ?? 'self_range_blocked',
                 };
-                this.deps.onDragTargetEvaluated?.({
-                    sourceBlock: dragSource,
-                    pointerType: info.pointerType ?? null,
-                    validation: result,
-                });
-                return result;
             }
             if (!inPlaceValidation.inSelfRange && inPlaceValidation.rejectReason) {
-                const result = {
+                return {
                     allowed: false,
                     reason: inPlaceValidation.rejectReason as DropRejectReason,
                 };
-                this.deps.onDragTargetEvaluated?.({
-                    sourceBlock: dragSource,
-                    pointerType: info.pointerType ?? null,
-                    validation: result,
-                });
-                return result;
             }
         }
 
-        const indicatorY = this.deps.getInsertionAnchorY(vertical.targetLineNumber);
+        const geometryStartedAt = this.now();
+        const indicatorY = this.deps.getInsertionAnchorY(vertical.targetLineNumber, frameCache);
         if (indicatorY === null) {
-            const result = { allowed: false, reason: 'no_anchor' } as const;
-            this.deps.onDragTargetEvaluated?.({
-                sourceBlock: dragSource,
-                pointerType: info.pointerType ?? null,
-                validation: result,
-            });
-            return result;
+            this.deps.recordPerfDuration?.('geometry', this.now() - geometryStartedAt);
+            return { allowed: false, reason: 'no_anchor' } as const;
         }
 
         const lineRectSourceLineNumber = listTarget.lineRectSourceLineNumber
             ?? vertical.lineRectSourceLineNumber;
-        let lineRect = this.deps.getLineRect(lineRectSourceLineNumber);
+        let lineRect = this.deps.getLineRect(lineRectSourceLineNumber, frameCache);
         if (typeof listTarget.listTargetIndentWidth === 'number') {
             const indentPos = this.deps.getLineIndentPosByWidth(lineRectSourceLineNumber, listTarget.listTargetIndentWidth);
             if (indentPos !== null) {
-                const start = this.view.coordsAtPos(indentPos);
-                const end = this.view.coordsAtPos(this.view.state.doc.line(lineRectSourceLineNumber).to);
+                const start = getCoordsAtPos(this.view, indentPos, frameCache);
+                const end = getCoordsAtPos(this.view, this.view.state.doc.line(lineRectSourceLineNumber).to, frameCache);
                 if (start && end) {
                     const left = start.left;
                     const width = Math.max(8, (end.right ?? end.left) - left);
@@ -281,7 +337,9 @@ export class DropTargetCalculator {
                 }
             }
         }
-        const result = {
+        this.deps.recordPerfDuration?.('geometry', this.now() - geometryStartedAt);
+
+        return {
             allowed: true,
             targetLineNumber: vertical.targetLineNumber,
             indicatorY,
@@ -291,17 +349,12 @@ export class DropTargetCalculator {
             lineRect,
             highlightRect: listTarget.highlightRect,
         };
-        this.deps.onDragTargetEvaluated?.({
-            sourceBlock: dragSource,
-            pointerType: info.pointerType ?? null,
-            validation: result,
-        });
-        return result;
     }
 
     private computeVerticalTarget(
         info: { clientX: number; clientY: number },
-        dragSource: BlockInfo | null
+        dragSource: BlockInfo | null,
+        frameCache: GeometryFrameCache
     ): {
         line: { number: number; text: string; from: number; to: number };
         targetLineNumber: number;
@@ -316,14 +369,17 @@ export class DropTargetCalculator {
 
         const line = this.view.state.doc.lineAt(pos);
         const allowListChildIntent = !!dragSource && dragSource.type === BlockType.ListItem;
-        const lineBoundsForSnap = this.listDropTargetCalculator.getListMarkerBounds(line.number);
+        const lineBoundsForSnap = this.listDropTargetCalculator.getListMarkerBounds(line.number, { frameCache });
         const lineParsedForSnap = this.deps.parseLineWithQuote(line.text);
         const childIntentOnLine = allowListChildIntent
             && !!lineBoundsForSnap
             && lineParsedForSnap.isListItem
             && info.clientX >= lineBoundsForSnap.contentStartX + 2;
 
-        const adjustedTarget = this.deps.getAdjustedTargetLocation(line.number, { clientY: info.clientY });
+        const adjustedTarget = this.deps.getAdjustedTargetLocation(line.number, {
+            clientY: info.clientY,
+            frameCache,
+        });
         let forcedLineNumber: number | null = adjustedTarget.blockAdjusted ? adjustedTarget.lineNumber : null;
 
         let showAtBottom = false;
@@ -333,8 +389,8 @@ export class DropTargetCalculator {
             if (isBlankLine) {
                 forcedLineNumber = line.number;
             } else {
-                const lineStart = this.view.coordsAtPos(line.from);
-                const lineEnd = this.view.coordsAtPos(line.to);
+                const lineStart = getCoordsAtPos(this.view, line.from, frameCache);
+                const lineEnd = getCoordsAtPos(this.view, line.to, frameCache);
                 if (lineStart && lineEnd) {
                     const midY = (lineStart.top + lineEnd.bottom) / 2;
                     showAtBottom = info.clientY > midY;
@@ -392,5 +448,33 @@ export class DropTargetCalculator {
         }
 
         return best;
+    }
+
+    private buildResolveCacheKey(
+        clientX: number,
+        clientY: number,
+        dragSource: BlockInfo | null,
+        pointerType: string | null
+    ): string {
+        if (!dragSource) {
+            return `${clientX}|${clientY}|none|${pointerType ?? ''}`;
+        }
+        return [
+            clientX,
+            clientY,
+            pointerType ?? '',
+            dragSource.type,
+            dragSource.startLine,
+            dragSource.endLine,
+            dragSource.from,
+            dragSource.to,
+        ].join('|');
+    }
+
+    private now(): number {
+        if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+            return performance.now();
+        }
+        return Date.now();
     }
 }

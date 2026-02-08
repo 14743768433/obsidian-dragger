@@ -1,6 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo } from '../../types';
 import { validateInPlaceDrop } from '../core/drop-validation';
+import { getLineMap, LineMap } from '../core/line-map';
 import { InsertionSlotContext } from '../core/insertion-rule-matrix';
 import { DocLike, DocLikeWithRange, ListContext, ParsedLine } from '../core/protocol-types';
 import { ListRenumberer } from './ListRenumberer';
@@ -11,7 +12,8 @@ export interface BlockMoverDeps {
     getAdjustedTargetLocation: (lineNumber: number, options?: { clientY?: number }) => { lineNumber: number; blockAdjusted: boolean };
     resolveDropRuleAtInsertion: (
         sourceBlock: BlockInfo,
-        targetLineNumber: number
+        targetLineNumber: number,
+        options?: { lineMap?: LineMap }
     ) => {
         slotContext: InsertionSlotContext;
         decision: { allowDrop: boolean; rejectReason?: string | null };
@@ -71,7 +73,12 @@ export class BlockMover {
         }
 
         targetLineNumber = this.deps.clampTargetLineNumber(doc.lines, targetLineNumber);
-        const containerRule = this.deps.resolveDropRuleAtInsertion(sourceBlock, targetLineNumber);
+        const lineMap = getLineMap(view.state as any);
+        const containerRule = this.deps.resolveDropRuleAtInsertion(
+            sourceBlock,
+            targetLineNumber,
+            { lineMap }
+        );
         if (!containerRule.decision.allowDrop) {
             return;
         }
@@ -84,6 +91,7 @@ export class BlockMover {
             getListContext: this.deps.getListContext,
             getIndentUnitWidth: this.deps.getIndentUnitWidth,
             slotContext: containerRule.slotContext,
+            lineMap,
             listContextLineNumberOverride,
             listIndentDeltaOverride,
             listTargetIndentWidthOverride,

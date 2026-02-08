@@ -4,6 +4,7 @@ import {
     InsertionSlotContext,
     resolveInsertionRule,
 } from './insertion-rule-matrix';
+import { getLineMetaAt, LineMap } from './line-map';
 import { computeListIndentPlan } from './mutations/list-mutation';
 import { DocLike, ListContext, ParsedLine } from './protocol-types';
 
@@ -29,6 +30,7 @@ export function validateInPlaceDrop(params: {
     getListContext: (doc: DocLike, lineNumber: number) => ListContext;
     getIndentUnitWidth: (sample: string) => number;
     slotContext?: InsertionSlotContext;
+    lineMap?: LineMap;
     listContextLineNumberOverride?: number;
     listIndentDeltaOverride?: number;
     listTargetIndentWidthOverride?: number;
@@ -41,6 +43,7 @@ export function validateInPlaceDrop(params: {
         getListContext,
         getIndentUnitWidth,
         slotContext,
+        lineMap,
         listContextLineNumberOverride,
         listIndentDeltaOverride,
         listTargetIndentWidthOverride,
@@ -76,6 +79,14 @@ export function validateInPlaceDrop(params: {
     }
 
     const sourceLineNumber = sourceBlock.startLine + 1;
+    const sourceLineMeta = lineMap ? getLineMetaAt(lineMap, sourceLineNumber) : null;
+    if (sourceLineMeta && !sourceLineMeta.isList) {
+        return {
+            inSelfRange: true,
+            allowInPlaceIndentChange: false,
+            rejectReason: 'self_range_blocked',
+        };
+    }
     const sourceLineText = doc.line(sourceLineNumber).text;
     const sourceParsed = parseLineWithQuote(sourceLineText);
     if (!sourceParsed.isListItem) {

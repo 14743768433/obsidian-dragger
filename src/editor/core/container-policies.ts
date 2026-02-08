@@ -1,5 +1,6 @@
 import { BlockInfo, BlockType } from '../../types';
 import { detectBlock } from '../block-detector';
+import { getLineMap, getLineMetaAt, LineMap } from './line-map';
 import {
     InsertionRuleDecision,
     InsertionSlotContext,
@@ -13,6 +14,10 @@ export type DetectBlockFn = (state: StateWithDoc, lineNumber: number) => BlockIn
 export interface DropRuleContext {
     slotContext: InsertionSlotContext;
     decision: InsertionRuleDecision;
+}
+
+export interface ContainerPolicyResolveOptions {
+    lineMap?: LineMap;
 }
 
 function clampInsertionLineNumber(doc: DocLike, lineNumber: number): number {
@@ -38,7 +43,24 @@ function getImmediateLineText(doc: DocLike, lineNumber: number): string | null {
     return doc.line(lineNumber).text;
 }
 
-export function getPreviousNonEmptyLineNumber(doc: DocLike, lineNumber: number): number | null {
+function getActiveLineMap(
+    state: StateWithDoc,
+    options?: ContainerPolicyResolveOptions
+): LineMap {
+    return options?.lineMap ?? getLineMap(state);
+}
+
+export function getPreviousNonEmptyLineNumber(
+    doc: DocLike,
+    lineNumber: number,
+    lineMap?: LineMap
+): number | null {
+    if (lineMap && lineMap.doc === doc) {
+        if (doc.lines <= 0) return null;
+        const clampedLine = Math.max(1, Math.min(doc.lines, lineNumber));
+        const prev = lineMap.prevNonEmpty[clampedLine];
+        return prev > 0 ? prev : null;
+    }
     for (let i = lineNumber; i >= 1; i--) {
         const text = doc.line(i).text;
         if (text.trim().length === 0) continue;
@@ -47,7 +69,17 @@ export function getPreviousNonEmptyLineNumber(doc: DocLike, lineNumber: number):
     return null;
 }
 
-export function getNextNonEmptyLineNumber(doc: DocLike, lineNumber: number): number | null {
+export function getNextNonEmptyLineNumber(
+    doc: DocLike,
+    lineNumber: number,
+    lineMap?: LineMap
+): number | null {
+    if (lineMap && lineMap.doc === doc) {
+        if (doc.lines <= 0) return null;
+        const clampedLine = Math.max(1, Math.min(doc.lines, lineNumber));
+        const next = lineMap.nextNonEmpty[clampedLine];
+        return next > 0 ? next : null;
+    }
     for (let i = lineNumber; i <= doc.lines; i++) {
         const text = doc.line(i).text;
         if (text.trim().length === 0) continue;
@@ -59,10 +91,12 @@ export function getNextNonEmptyLineNumber(doc: DocLike, lineNumber: number): num
 export function findEnclosingListBlock(
     state: StateWithDoc,
     lineNumber: number,
-    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn
+    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn,
+    options?: ContainerPolicyResolveOptions
 ): BlockInfo | null {
     const doc = state.doc;
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
+    const lineMap = getActiveLineMap(state, options);
 
     const radius = 8;
     const minLine = Math.max(1, lineNumber - radius);
@@ -70,6 +104,9 @@ export function findEnclosingListBlock(
     let best: BlockInfo | null = null;
 
     for (let ln = minLine; ln <= maxLine; ln++) {
+        const meta = getLineMetaAt(lineMap, ln);
+        if (meta && !meta.isList) continue;
+
         const block = detectBlockFn(state, ln);
         if (!block || block.type !== BlockType.ListItem) continue;
         const blockStart = block.startLine + 1;
@@ -124,25 +161,30 @@ function isCalloutAfterBoundary(
 function resolveListContextAtInsertion(
     state: StateWithDoc,
     targetLineNumber: number,
-    detectBlockFn: DetectBlockFn
+    detectBlockFn: DetectBlockFn,
+    options?: ContainerPolicyResolveOptions
 ): { type: ContainerType; block: BlockInfo } | null {
     const doc = state.doc;
     if (doc.lines <= 0) return null;
+    const lineMap = getActiveLineMap(state, options);
 
     const candidates = [
         targetLineNumber - 1,
         targetLineNumber,
         targetLineNumber + 1,
-        getPreviousNonEmptyLineNumber(doc, targetLineNumber - 1),
-        getNextNonEmptyLineNumber(doc, targetLineNumber),
+        getPreviousNonEmptyLineNumber(doc, targetLineNumber - 1, lineMap),
+        getNextNonEmptyLineNumber(doc, targetLineNumber, lineMap),
     ].filter((v): v is number => typeof v === 'number' && v >= 1 && v <= doc.lines);
     const seen = new Set<number>();
     let best: BlockInfo | null = null;
 
-    for (const lineNumber of candidates) {
-        if (seen.has(lineNumber)) continue;
-        seen.add(lineNumber);
-        const block = findEnclosingListBlock(state, lineNumber, detectBlockFn);
+    for (const line of candidates) {
+        if (seen.has(line)) continue;
+        seen.add(line);
+        const lineMeta = getLineMetaAt(lineMap, line);
+        if (lineMeta && !lineMeta.isList) continue;
+
+        const block = findEnclosingListBlock(state, line, detectBlockFn, { lineMap });
         if (!block) continue;
 
         const blockTopBoundary = block.startLine + 1;
@@ -163,26 +205,34 @@ function resolveListContextAtInsertion(
 export function getContainerContextAtInsertion(
     state: StateWithDoc,
     targetLineNumber: number,
-    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn
+    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn,
+    options?: ContainerPolicyResolveOptions
 ): { type: ContainerType; block: BlockInfo } | null {
     const doc = state.doc;
     const clampedTarget = clampInsertionLineNumber(doc, targetLineNumber);
-    return resolveListContextAtInsertion(state, clampedTarget, detectBlockFn);
+    return resolveListContextAtInsertion(state, clampedTarget, detectBlockFn, options);
 }
 
 export function resolveSlotContextAtInsertion(
     state: StateWithDoc,
     targetLineNumber: number,
-    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn
+    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn,
+    options?: ContainerPolicyResolveOptions
 ): InsertionSlotContext {
     const doc = state.doc;
+    const lineMap = getActiveLineMap(state, options);
     const clampedTarget = clampInsertionLineNumber(doc, targetLineNumber);
     const prevImmediateLine = clampedTarget - 1;
     const nextImmediateLine = clampedTarget <= doc.lines ? clampedTarget : null;
-    const prevImmediateText = getImmediateLineText(doc, prevImmediateLine);
-    const nextImmediateText = nextImmediateLine === null ? null : getImmediateLineText(doc, nextImmediateLine);
-    const prevIsQuoteLike = isBlockquoteLine(prevImmediateText);
-    const nextIsQuoteLike = isBlockquoteLine(nextImmediateText);
+    const prevMeta = getLineMetaAt(lineMap, prevImmediateLine);
+    const nextMeta = nextImmediateLine === null ? null : getLineMetaAt(lineMap, nextImmediateLine);
+
+    const prevImmediateText = prevMeta ? null : getImmediateLineText(doc, prevImmediateLine);
+    const nextImmediateText = nextMeta || nextImmediateLine === null
+        ? null
+        : getImmediateLineText(doc, nextImmediateLine);
+    const prevIsQuoteLike = prevMeta ? prevMeta.isQuote : isBlockquoteLine(prevImmediateText);
+    const nextIsQuoteLike = nextMeta ? nextMeta.isQuote : isBlockquoteLine(nextImmediateText);
 
     if (isCalloutAfterBoundary(state, prevImmediateLine, nextIsQuoteLike, detectBlockFn)) {
         return 'callout_after';
@@ -206,7 +256,12 @@ export function resolveSlotContextAtInsertion(
         return 'quote_after';
     }
 
-    const listContext = resolveListContextAtInsertion(state, clampedTarget, detectBlockFn);
+    const listContext = resolveListContextAtInsertion(
+        state,
+        clampedTarget,
+        detectBlockFn,
+        { lineMap }
+    );
     if (listContext) {
         return 'inside_list';
     }
@@ -218,13 +273,15 @@ export function shouldPreventDropIntoDifferentContainer(
     state: StateWithDoc,
     sourceBlock: BlockInfo,
     targetLineNumber: number,
-    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn
+    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn,
+    options?: ContainerPolicyResolveOptions
 ): boolean {
     const ruleContext = resolveDropRuleContextAtInsertion(
         state,
         sourceBlock,
         targetLineNumber,
-        detectBlockFn
+        detectBlockFn,
+        options
     );
     return !ruleContext.decision.allowDrop;
 }
@@ -233,9 +290,10 @@ export function resolveDropRuleContextAtInsertion(
     state: StateWithDoc,
     sourceBlock: BlockInfo,
     targetLineNumber: number,
-    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn
+    detectBlockFn: DetectBlockFn = detectBlock as unknown as DetectBlockFn,
+    options?: ContainerPolicyResolveOptions
 ): DropRuleContext {
-    const slotContext = resolveSlotContextAtInsertion(state, targetLineNumber, detectBlockFn);
+    const slotContext = resolveSlotContextAtInsertion(state, targetLineNumber, detectBlockFn, options);
     const decision = resolveInsertionRule({
         sourceType: sourceBlock.type,
         slotContext,

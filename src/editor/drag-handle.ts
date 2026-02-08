@@ -18,6 +18,9 @@ import {
     isPosInsideRenderedTableCell,
 } from './core/table-guard';
 import { getPreviousNonEmptyLineNumber as getPreviousNonEmptyLineNumberInDoc } from './core/container-policies';
+import { createDragPerfSession, DragPerfSession, logDragPerfSession } from './core/perf-session';
+import { getLineMap, setLineMapPerfRecorder } from './core/line-map';
+import { setDetectBlockPerfRecorder } from './block-detector';
 import { BlockMover } from './movers/BlockMover';
 import { DropIndicatorManager } from './managers/DropIndicatorManager';
 import { DropTargetCalculator } from './handlers/DropTargetCalculator';
@@ -64,6 +67,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             private currentHoveredLineNumber: number | null = null;
             private activeVisibleHandle: HTMLElement | null = null;
             private lastLifecycleSignature: string | null = null;
+            private dragPerfSession: DragPerfSession | null = null;
             private readonly onDocumentPointerMove = (e: PointerEvent) => this.handleDocumentPointerMove(e);
 
             constructor(view: EditorView) {
@@ -91,6 +95,12 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     getLineIndentPosByWidth: this.geometryCalculator.getLineIndentPosByWidth.bind(this.geometryCalculator),
                     getBlockRect: this.geometryCalculator.getBlockRect.bind(this.geometryCalculator),
                     clampNumber,
+                    recordPerfDuration: (key, durationMs) => {
+                        this.dragPerfSession?.recordDuration(key, durationMs);
+                    },
+                    incrementPerfCounter: (key, delta = 1) => {
+                        this.dragPerfSession?.incrementCounter(key, delta);
+                    },
                     onDragTargetEvaluated: ({ sourceBlock, pointerType, validation }) => {
                         if (!sourceBlock) return;
                         this.emitDragLifecycle({
@@ -114,6 +124,21 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         dragSource: info.dragSource ?? getActiveDragSourceBlock(this.view) ?? null,
                         pointerType: info.pointerType ?? null,
                     })
+                , {
+                    recordPerfDuration: (key, durationMs) => {
+                        this.dragPerfSession?.recordDuration(key, durationMs);
+                    },
+                    onFrameMetrics: (metrics) => {
+                        if (!this.dragPerfSession) return;
+                        this.dragPerfSession.incrementCounter('drop_indicator_frames');
+                        if (metrics.skipped) {
+                            this.dragPerfSession.incrementCounter('drop_indicator_skipped_frames');
+                        }
+                        if (metrics.reused) {
+                            this.dragPerfSession.incrementCounter('drop_indicator_reused_frames');
+                        }
+                    },
+                }
                 );
                 this.blockMover = new BlockMover({
                     view: this.view,
@@ -144,6 +169,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     isBlockInsideRenderedTableCell: (blockInfo) =>
                         isPosInsideRenderedTableCell(this.view, blockInfo.from, { skipLayoutRead: true }),
                     beginPointerDragSession: (blockInfo) => {
+                        this.ensureDragPerfSession();
                         const lineNumber = blockInfo.startLine + 1;
                         if (lineNumber >= 1 && lineNumber <= this.view.state.doc.lines) {
                             this.setHoveredLineNumber(lineNumber);
@@ -154,6 +180,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     finishDragSession: () => {
                         this.setActiveVisibleHandle(null);
                         finishDragSession(this.view);
+                        this.flushDragPerfSession('finish_drag_session');
                     },
                     scheduleDropIndicatorUpdate: (clientX, clientY, dragSource, pointerType) =>
                         this.dropIndicator.scheduleFromPoint(clientX, clientY, dragSource, pointerType ?? null),
@@ -187,6 +214,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         if (!started) {
                             this.setActiveVisibleHandle(null);
                             finishDragSession(this.view);
+                            this.flushDragPerfSession('drag_start_failed');
                             this.emitDragLifecycle({
                                 state: 'cancelled',
                                 sourceBlock: sourceBlock ?? null,
@@ -205,6 +233,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                             });
                             return;
                         }
+                        this.ensureDragPerfSession();
                         this.emitDragLifecycle({
                             state: 'drag_active',
                             sourceBlock: sourceBlock ?? null,
@@ -217,6 +246,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     onDragEnd: () => {
                         this.setActiveVisibleHandle(null);
                         finishDragSession(this.view);
+                        this.flushDragPerfSession('drag_end');
                         this.emitDragLifecycle({
                             state: 'idle',
                             sourceBlock: null,
@@ -242,6 +272,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             }
 
             performDropAtPoint(sourceBlock: BlockInfo, clientX: number, clientY: number, pointerType: string | null): void {
+                this.ensureDragPerfSession();
                 const view = this.view;
                 const validation = this.dropTargetCalculator.resolveValidatedDropTarget({
                     clientX,
@@ -296,6 +327,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 document.removeEventListener('pointermove', this.onDocumentPointerMove);
                 this.setActiveVisibleHandle(null);
                 finishDragSession(this.view);
+                this.flushDragPerfSession('destroy');
                 this.dragEventHandler.destroy();
                 this.view.dom.classList.remove(ROOT_EDITOR_CLASS);
                 this.view.contentDOM.classList.remove(MAIN_EDITOR_CONTENT_CLASS);
@@ -434,6 +466,30 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 if (signature === this.lastLifecycleSignature) return;
                 this.lastLifecycleSignature = signature;
                 _plugin.emitDragLifecycleEvent(payload);
+            }
+
+            private ensureDragPerfSession(): void {
+                if (this.dragPerfSession) return;
+                this.dragPerfSession = createDragPerfSession({
+                    docLines: this.view.state.doc.lines,
+                });
+                setLineMapPerfRecorder((key, durationMs) => {
+                    this.dragPerfSession?.recordDuration(key, durationMs);
+                });
+                setDetectBlockPerfRecorder((key, durationMs) => {
+                    this.dragPerfSession?.recordDuration(key, durationMs);
+                });
+                // Warm line-map once per drag session to move cold build out of move-frame hot path.
+                getLineMap(this.view.state);
+            }
+
+            private flushDragPerfSession(reason: string): void {
+                if (this.dragPerfSession) {
+                    logDragPerfSession(this.dragPerfSession, reason);
+                    this.dragPerfSession = null;
+                }
+                setLineMapPerfRecorder(null);
+                setDetectBlockPerfRecorder(null);
             }
 
             private resolveVisibleHandleFromTarget(target: EventTarget | null): HTMLElement | null {

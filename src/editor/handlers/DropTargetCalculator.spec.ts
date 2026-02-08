@@ -197,4 +197,33 @@ describe('DropTargetCalculator', () => {
         expect(validation.allowed).toBe(false);
         expect(validation.reason).toBe('no_anchor');
     });
+
+    it('reuses cached validation result for repeated identical input', () => {
+        mockElementFromPoint(null);
+        const resolveDropRuleAtInsertion = vi.fn(() => ({
+            slotContext: 'outside' as const,
+            decision: { allowDrop: true },
+        }));
+        const view = createViewStub('plain line');
+        const calculator = new DropTargetCalculator(view, createDeps({
+            resolveDropRuleAtInsertion,
+        }));
+
+        const source = createSourceBlock('outside', 4, 4);
+        const first = calculator.resolveValidatedDropTarget({
+            clientX: 40,
+            clientY: 5,
+            dragSource: source,
+            pointerType: 'mouse',
+        });
+        const second = calculator.resolveValidatedDropTarget({
+            clientX: 40,
+            clientY: 5,
+            dragSource: source,
+            pointerType: 'mouse',
+        });
+
+        expect(first).toEqual(second);
+        expect(resolveDropRuleAtInsertion).toHaveBeenCalledTimes(1);
+    });
 });

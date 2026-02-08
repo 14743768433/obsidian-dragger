@@ -1,5 +1,6 @@
 import { EditorState, Text } from '@codemirror/state';
 import { BlockType, BlockInfo } from '../types';
+import { getLineMap, getLineMetaAt } from './core/line-map';
 
 export function getHeadingLevel(lineText: string): number | null {
     const trimmed = lineText.trimStart();
@@ -304,75 +305,130 @@ function isSingleLineMathFence(lineText: string): boolean {
     return trimmed.slice(2).includes('$$');
 }
 
-function findMathBlockRange(doc: Text, lineNumber: number): { startLine: number; endLine: number } | null {
-    let startLine: number | null = null;
+type FenceRange = { startLine: number; endLine: number };
 
-    for (let i = 1; i <= doc.lines; i++) {
-        if (i > lineNumber && startLine === null) {
-            return null;
-        }
+type FenceRangeIndex = {
+    codeStartByLine: Int32Array;
+    codeEndByLine: Int32Array;
+    mathStartByLine: Int32Array;
+    mathEndByLine: Int32Array;
+};
 
-        const text = doc.line(i).text;
-        if (!isMathFenceLine(text)) continue;
+const fenceRangeIndexCache = new WeakMap<Text, FenceRangeIndex>();
+const blockDetectionCache = new WeakMap<Text, Map<number, Map<number, BlockInfo | null>>>();
 
-        if (startLine === null) {
-            if (isSingleLineMathFence(text)) {
-                if (lineNumber === i) {
-                    return { startLine: i, endLine: i };
-                }
-                continue;
-            }
-            startLine = i;
-            continue;
-        }
+type DetectBlockPerfDurationKey = 'detect_block_uncached';
 
-        const range = { startLine, endLine: i };
-        if (lineNumber >= range.startLine && lineNumber <= range.endLine) {
-            return range;
-        }
-        startLine = null;
+let detectBlockPerfRecorder: ((key: DetectBlockPerfDurationKey, durationMs: number) => void) | null = null;
+
+function nowMs(): number {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+        return performance.now();
     }
-
-    return null;
+    return Date.now();
 }
 
-function findCodeBlockRange(doc: Text, lineNumber: number): { startLine: number; endLine: number } | null {
-    let startLine: number | null = null;
+function recordDetectBlockPerf(key: DetectBlockPerfDurationKey, durationMs: number): void {
+    if (!detectBlockPerfRecorder) return;
+    if (!isFinite(durationMs) || durationMs < 0) return;
+    detectBlockPerfRecorder(key, durationMs);
+}
+
+export function setDetectBlockPerfRecorder(
+    recorder: ((key: DetectBlockPerfDurationKey, durationMs: number) => void) | null
+): void {
+    detectBlockPerfRecorder = recorder;
+}
+
+function assignFenceRange(startByLine: Int32Array, endByLine: Int32Array, startLine: number, endLine: number): void {
+    for (let i = startLine; i <= endLine; i++) {
+        startByLine[i] = startLine;
+        endByLine[i] = endLine;
+    }
+}
+
+function buildFenceRangeIndex(doc: Text): FenceRangeIndex {
+    const codeStartByLine = new Int32Array(doc.lines + 1);
+    const codeEndByLine = new Int32Array(doc.lines + 1);
+    const mathStartByLine = new Int32Array(doc.lines + 1);
+    const mathEndByLine = new Int32Array(doc.lines + 1);
+
+    let codeStartLine = 0;
+    let mathStartLine = 0;
 
     for (let i = 1; i <= doc.lines; i++) {
-        if (i > lineNumber && startLine === null) {
-            return null;
-        }
-
         const text = doc.line(i).text;
-        if (!isCodeFenceLine(text)) continue;
 
-        if (startLine === null) {
-            startLine = i;
-            continue;
+        if (isCodeFenceLine(text)) {
+            if (codeStartLine === 0) {
+                codeStartLine = i;
+            } else {
+                assignFenceRange(codeStartByLine, codeEndByLine, codeStartLine, i);
+                codeStartLine = 0;
+            }
         }
 
-        const range = { startLine, endLine: i };
-        if (lineNumber >= range.startLine && lineNumber <= range.endLine) {
-            return range;
+        if (isMathFenceLine(text)) {
+            if (mathStartLine === 0) {
+                if (isSingleLineMathFence(text)) {
+                    assignFenceRange(mathStartByLine, mathEndByLine, i, i);
+                } else {
+                    mathStartLine = i;
+                }
+            } else {
+                assignFenceRange(mathStartByLine, mathEndByLine, mathStartLine, i);
+                mathStartLine = 0;
+            }
         }
-        startLine = null;
     }
 
-    // 与原行为保持一致：未闭合 fence 仅将起始 fence 行视为代码块
-    if (startLine !== null && lineNumber === startLine) {
-        return { startLine, endLine: startLine };
+    // 与原行为保持一致：未闭合 code fence 仅将起始 fence 行视为代码块
+    if (codeStartLine !== 0) {
+        assignFenceRange(codeStartByLine, codeEndByLine, codeStartLine, codeStartLine);
     }
 
-    return null;
+    return {
+        codeStartByLine,
+        codeEndByLine,
+        mathStartByLine,
+        mathEndByLine,
+    };
+}
+
+function getFenceRangeIndex(doc: Text): FenceRangeIndex {
+    const cached = fenceRangeIndexCache.get(doc);
+    if (cached) return cached;
+    const built = buildFenceRangeIndex(doc);
+    fenceRangeIndexCache.set(doc, built);
+    return built;
+}
+
+function getFenceRangeAtLine(startByLine: Int32Array, endByLine: Int32Array, lineNumber: number): FenceRange | null {
+    const startLine = startByLine[lineNumber];
+    if (startLine === 0) return null;
+    return {
+        startLine,
+        endLine: endByLine[lineNumber],
+    };
+}
+
+function findMathBlockRange(doc: Text, lineNumber: number): FenceRange | null {
+    if (lineNumber < 1 || lineNumber > doc.lines) return null;
+    const index = getFenceRangeIndex(doc);
+    return getFenceRangeAtLine(index.mathStartByLine, index.mathEndByLine, lineNumber);
+}
+
+function findCodeBlockRange(doc: Text, lineNumber: number): FenceRange | null {
+    if (lineNumber < 1 || lineNumber > doc.lines) return null;
+    const index = getFenceRangeIndex(doc);
+    return getFenceRangeAtLine(index.codeStartByLine, index.codeEndByLine, lineNumber);
 }
 
 /**
  * 检测块的完整范围（包括多行块如代码块）
  */
-export function detectBlock(state: EditorState, lineNumber: number): BlockInfo | null {
+function detectBlockUncached(state: EditorState, lineNumber: number, tabSize: number): BlockInfo | null {
     const doc = state.doc;
-    const tabSize = state.facet(EditorState.tabSize) || 2;
 
     if (lineNumber < 1 || lineNumber > doc.lines) {
         return null;
@@ -413,8 +469,17 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
 
     // 列表项：包含其子项
     if (blockType === BlockType.ListItem) {
-        const range = getListItemSubtreeRange(doc, lineNumber, tabSize);
-        endLine = range.endLine;
+        const lineMap = getLineMap(state, { tabSize });
+        const lineMeta = getLineMetaAt(lineMap, lineNumber);
+        const subtreeEndLine = lineMeta?.isList
+            ? lineMap.listSubtreeEndLine[lineNumber]
+            : 0;
+        if (subtreeEndLine >= lineNumber) {
+            endLine = subtreeEndLine;
+        } else {
+            const range = getListItemSubtreeRange(doc, lineNumber, tabSize);
+            endLine = range.endLine;
+        }
     }
 
     if (blockType === BlockType.Blockquote) {
@@ -477,6 +542,35 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
         indentLevel: getIndentLevel(startLineText, tabSize),
         content,
     };
+}
+
+/**
+ * hot path cache: drag move 每帧会重复查询同一行块信息
+ */
+export function detectBlock(state: EditorState, lineNumber: number): BlockInfo | null {
+    const doc = state.doc;
+    const tabSize = state.facet(EditorState.tabSize) || 2;
+
+    let cacheByTabSize = blockDetectionCache.get(doc);
+    if (!cacheByTabSize) {
+        cacheByTabSize = new Map<number, Map<number, BlockInfo | null>>();
+        blockDetectionCache.set(doc, cacheByTabSize);
+    }
+    let perDocCache = cacheByTabSize.get(tabSize);
+    if (!perDocCache) {
+        perDocCache = new Map<number, BlockInfo | null>();
+        cacheByTabSize.set(tabSize, perDocCache);
+    }
+
+    if (perDocCache.has(lineNumber)) {
+        return perDocCache.get(lineNumber) ?? null;
+    }
+
+    const startedAt = nowMs();
+    const detected = detectBlockUncached(state, lineNumber, tabSize);
+    recordDetectBlockPerf('detect_block_uncached', nowMs() - startedAt);
+    perDocCache.set(lineNumber, detected);
+    return detected;
 }
 
 export function getListItemOwnRangeForHandle(state: EditorState, lineNumber: number): { startLine: number; endLine: number } | null {

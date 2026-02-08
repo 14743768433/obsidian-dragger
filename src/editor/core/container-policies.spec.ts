@@ -7,6 +7,7 @@ import {
     shouldPreventDropIntoDifferentContainer,
     type DetectBlockFn,
 } from './container-policies';
+import { getLineMap } from './line-map';
 import { DocLike, StateWithDoc } from './protocol-types';
 
 function createDoc(lines: string[]): DocLike {
@@ -165,5 +166,17 @@ describe('container-policies', () => {
 
         expect(shouldPreventDropIntoDifferentContainer(state, paragraph, 2, detect)).toBe(true);
         expect(shouldPreventDropIntoDifferentContainer(state, listItem, 2, detect)).toBe(false);
+    });
+
+    it('keeps slot context output stable when passing explicit lineMap', () => {
+        const state = createState(['> quote', '', '- item', 'tail']);
+        const listBlock = createBlock(BlockType.ListItem, 2, 2, '- item');
+        const detect = mapDetectBlock({ 3: listBlock });
+        const lineMap = getLineMap(state);
+
+        const withoutMap = resolveSlotContextAtInsertion(state, 3, detect);
+        const withMap = resolveSlotContextAtInsertion(state, 3, detect, { lineMap });
+
+        expect(withMap).toBe(withoutMap);
     });
 });

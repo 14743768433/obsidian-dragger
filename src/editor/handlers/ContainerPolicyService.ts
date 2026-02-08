@@ -1,6 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { detectBlock } from '../block-detector';
 import { BlockInfo } from '../../types';
+import { getLineMap, LineMap } from '../core/line-map';
 import {
     resolveDropRuleContextAtInsertion,
     type DropRuleContext,
@@ -11,9 +12,17 @@ export class ContainerPolicyService {
 
     resolveDropRuleAtInsertion(
         sourceBlock: BlockInfo,
-        targetLineNumber: number
+        targetLineNumber: number,
+        options?: { lineMap?: LineMap }
     ): DropRuleContext {
-        return resolveDropRuleContextAtInsertion(this.view.state, sourceBlock, targetLineNumber, detectBlock as any);
+        const lineMap = options?.lineMap ?? getLineMap(this.view.state);
+        return resolveDropRuleContextAtInsertion(
+            this.view.state,
+            sourceBlock,
+            targetLineNumber,
+            detectBlock as any,
+            { lineMap }
+        );
     }
 
     shouldPreventDropIntoDifferentContainer(

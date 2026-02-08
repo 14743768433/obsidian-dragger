@@ -2,6 +2,8 @@ import { EditorView } from '@codemirror/view';
 import { detectBlock } from '../block-detector';
 import { BlockType } from '../../types';
 import {
+    GeometryFrameCache,
+    getCoordsAtPos as getCoordsAtPosCached,
     getLineRect as getLineRectByLineNumber,
     getInsertionAnchorY as getInsertionAnchorYByLineNumber,
     getLineIndentPosByWidth as getLineIndentPosByWidthWithTabSize,
@@ -18,7 +20,7 @@ export class GeometryCalculator {
 
     getAdjustedTargetLocation(
         lineNumber: number,
-        options?: { clientY?: number }
+        options?: { clientY?: number; frameCache?: GeometryFrameCache }
     ): { lineNumber: number; blockAdjusted: boolean } {
         const doc = this.view.state.doc;
         if (lineNumber < 1 || lineNumber > doc.lines) {
@@ -33,8 +35,8 @@ export class GeometryCalculator {
         if (typeof options?.clientY === 'number') {
             const blockStartLine = doc.line(block.startLine + 1);
             const blockEndLine = doc.line(block.endLine + 1);
-            const startCoords = this.view.coordsAtPos(blockStartLine.from);
-            const endCoords = this.view.coordsAtPos(blockEndLine.to);
+            const startCoords = getCoordsAtPosCached(this.view, blockStartLine.from, options.frameCache);
+            const endCoords = getCoordsAtPosCached(this.view, blockEndLine.to, options.frameCache);
             if (startCoords && endCoords) {
                 const midPoint = (startCoords.top + endCoords.bottom) / 2;
                 const insertAfter = options.clientY > midPoint;
@@ -55,12 +57,12 @@ export class GeometryCalculator {
         };
     }
 
-    getLineRect(lineNumber: number): { left: number; width: number } | undefined {
-        return getLineRectByLineNumber(this.view, lineNumber);
+    getLineRect(lineNumber: number, frameCache?: GeometryFrameCache): { left: number; width: number } | undefined {
+        return getLineRectByLineNumber(this.view, lineNumber, frameCache);
     }
 
-    getInsertionAnchorY(lineNumber: number): number | null {
-        return getInsertionAnchorYByLineNumber(this.view, lineNumber);
+    getInsertionAnchorY(lineNumber: number, frameCache?: GeometryFrameCache): number | null {
+        return getInsertionAnchorYByLineNumber(this.view, lineNumber, frameCache);
     }
 
     getLineIndentPosByWidth(lineNumber: number, targetIndentWidth: number): number | null {
@@ -72,7 +74,11 @@ export class GeometryCalculator {
         );
     }
 
-    getBlockRect(startLineNumber: number, endLineNumber: number): { top: number; left: number; width: number; height: number } | undefined {
-        return getBlockRectByRange(this.view, startLineNumber, endLineNumber);
+    getBlockRect(
+        startLineNumber: number,
+        endLineNumber: number,
+        frameCache?: GeometryFrameCache
+    ): { top: number; left: number; width: number; height: number } | undefined {
+        return getBlockRectByRange(this.view, startLineNumber, endLineNumber, frameCache);
     }
 }

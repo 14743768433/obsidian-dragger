@@ -95,6 +95,27 @@ describe('block-detector', () => {
         expect(block?.endLine).toBe(0);
     });
 
+    it('reuses cached block detection result for repeated lookup on same line', () => {
+        const state = createState('```ts\nconst x = 1\n```\noutside');
+        const first = detectBlock(state, 2);
+        const second = detectBlock(state, 2);
+
+        expect(first).not.toBeNull();
+        expect(second).not.toBeNull();
+        expect(first).toBe(second);
+    });
+
+    it('keeps unclosed fenced code behavior (only fence start line is code block)', () => {
+        const state = createState('```ts\nconst x = 1\nstill code?');
+        const startFenceBlock = detectBlock(state, 1);
+        const innerLineBlock = detectBlock(state, 2);
+
+        expect(startFenceBlock?.type).toBe(BlockType.CodeBlock);
+        expect(startFenceBlock?.startLine).toBe(0);
+        expect(startFenceBlock?.endLine).toBe(0);
+        expect(innerLineBlock?.type).toBe(BlockType.Paragraph);
+    });
+
     it('returns heading section range until next same-or-higher heading', () => {
         const state = createState('# H1\nparagraph\n## H2\nsub\n# H1-2\ntail');
         const range = getHeadingSectionRange(state.doc, 1);

@@ -5,6 +5,8 @@ import {
     getIndentUnitWidth as getIndentUnitWidthFromSample,
 } from '../core/block-mutation';
 
+const indentUnitWidthCache = new WeakMap<object, number>();
+
 export function normalizeTabSize(tabSize?: number): number {
     const safe = tabSize ?? 4;
     return safe > 0 ? safe : 4;
@@ -44,9 +46,18 @@ export function getIndentUnitWidthForDoc(
     parseLine: (line: string) => ParsedLine,
     fallbackTabSize?: number
 ): number {
+    if (doc && typeof doc === 'object') {
+        const cached = indentUnitWidthCache.get(doc as object);
+        if (typeof cached === 'number') {
+            return cached;
+        }
+    }
     const fromDoc = getIndentUnitWidthFromDoc(doc, parseLine, fallbackTabSize);
-    if (typeof fromDoc === 'number') return fromDoc;
-    return normalizeTabSize(fallbackTabSize);
+    const resolved = typeof fromDoc === 'number' ? fromDoc : normalizeTabSize(fallbackTabSize);
+    if (doc && typeof doc === 'object') {
+        indentUnitWidthCache.set(doc as object, resolved);
+    }
+    return resolved;
 }
 
 export function buildIndentStringFromSample(sample: string, width: number, tabSize: number): string {
