@@ -81,6 +81,8 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     getPreviousNonEmptyLineNumber: getPreviousNonEmptyLineNumberInDoc,
                     shouldPreventDropIntoDifferentContainer:
                         this.containerPolicyService.shouldPreventDropIntoDifferentContainer.bind(this.containerPolicyService),
+                    getListContext: this.textMutationPolicy.getListContext.bind(this.textMutationPolicy),
+                    getIndentUnitWidth: this.textMutationPolicy.getIndentUnitWidth.bind(this.textMutationPolicy),
                     getBlockInfoForEmbed: (embedEl) => this.dragSourceResolver.getBlockInfoForEmbed(embedEl),
                     getIndentUnitWidthForDoc: this.textMutationPolicy.getIndentUnitWidthForDoc.bind(this.textMutationPolicy),
                     getLineRect: this.geometryCalculator.getLineRect.bind(this.geometryCalculator),
@@ -93,7 +95,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     this.dropTargetCalculator.getDropTargetInfo({
                         clientX: info.clientX,
                         clientY: info.clientY,
-                        dragSource: info.dragSource ?? getActiveDragSourceBlock() ?? null,
+                        dragSource: info.dragSource ?? getActiveDragSourceBlock(this.view) ?? null,
                     })
                 );
                 this.blockMover = new BlockMover({
@@ -119,7 +121,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     shouldRenderEmbedHandles: () => true,
                 });
                 this.dragEventHandler = new DragEventHandler(this.view, {
-                    getDragSourceBlock: getDragSourceBlockFromEvent,
+                    getDragSourceBlock: (e) => getDragSourceBlockFromEvent(e, this.view),
                     getBlockInfoForHandle: (handle) => this.dragSourceResolver.getBlockInfoForHandle(handle),
                     getBlockInfoAtPoint: (clientX, clientY) => this.dragSourceResolver.getDraggableBlockAtPoint(clientX, clientY),
                     isBlockInsideRenderedTableCell: (blockInfo) =>
@@ -134,7 +136,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     },
                     finishDragSession: () => {
                         this.setActiveVisibleHandle(null);
-                        finishDragSession();
+                        finishDragSession(this.view);
                     },
                     scheduleDropIndicatorUpdate: (clientX, clientY, dragSource) =>
                         this.dropIndicator.scheduleFromPoint(clientX, clientY, dragSource),
@@ -162,11 +164,15 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 const handle = createDragHandleElement({
                     onDragStart: (e, el) => {
                         this.setActiveVisibleHandle(el);
-                        startDragFromHandle(e, this.view, getBlockInfo, el);
+                        const started = startDragFromHandle(e, this.view, getBlockInfo, el);
+                        if (!started) {
+                            this.setActiveVisibleHandle(null);
+                            finishDragSession(this.view);
+                        }
                     },
                     onDragEnd: () => {
                         this.setActiveVisibleHandle(null);
-                        finishDragSession();
+                        finishDragSession(this.view);
                     },
                 });
                 handle.addEventListener('pointerdown', (e: PointerEvent) => {
@@ -185,33 +191,34 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
 
             performDropAtPoint(sourceBlock: BlockInfo, clientX: number, clientY: number): void {
                 const view = this.view;
-                const targetInfo = this.dropTargetCalculator.getDropTargetInfo({
+                const validation = this.dropTargetCalculator.resolveValidatedDropTarget({
                     clientX,
                     clientY,
                     dragSource: sourceBlock,
                 });
-                const targetLineNumber = targetInfo?.lineNumber ?? null;
-                const targetPos = targetLineNumber
-                    ? (targetLineNumber > view.state.doc.lines
-                        ? view.state.doc.length
-                        : view.state.doc.line(targetLineNumber).from)
-                    : view.posAtCoords({ x: clientX, y: clientY });
+                if (!validation.allowed || typeof validation.targetLineNumber !== 'number') {
+                    return;
+                }
 
-                if (targetPos === null) return;
+                const targetLineNumber = validation.targetLineNumber;
+                const targetPos = targetLineNumber > view.state.doc.lines
+                    ? view.state.doc.length
+                    : view.state.doc.line(targetLineNumber).from;
 
                 this.blockMover.moveBlock({
                     sourceBlock,
                     targetPos,
-                    targetLineNumberOverride: targetLineNumber ?? undefined,
-                    listContextLineNumberOverride: targetInfo?.listContextLineNumber,
-                    listIndentDeltaOverride: targetInfo?.listIndentDelta,
-                    listTargetIndentWidthOverride: targetInfo?.listTargetIndentWidth,
+                    targetLineNumberOverride: targetLineNumber,
+                    listContextLineNumberOverride: validation.listContextLineNumber,
+                    listIndentDeltaOverride: validation.listIndentDelta,
+                    listTargetIndentWidthOverride: validation.listTargetIndentWidth,
                 });
             }
 
             destroy(): void {
                 document.removeEventListener('pointermove', this.onDocumentPointerMove);
                 this.setActiveVisibleHandle(null);
+                finishDragSession(this.view);
                 this.dragEventHandler.destroy();
                 this.view.dom.classList.remove(ROOT_EDITOR_CLASS);
                 this.view.contentDOM.classList.remove(MAIN_EDITOR_CONTENT_CLASS);

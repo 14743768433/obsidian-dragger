@@ -91,16 +91,7 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 await this.plugin.saveSettings();
             }));
 
-        containerEl.createEl('h3', { text: '功能' });
-
-        new Setting(containerEl)
-            .setName('跨文件拖拽')
-            .setDesc('允许将块拖拽到其他文件（实验性）')
-            .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.enableCrossFileDrag)
-                .onChange(async (value) => {
-                    this.plugin.settings.enableCrossFileDrag = value;
-                    await this.plugin.saveSettings();
-                }));
+        // Cross-file drag remains disabled in this release.
+        // Keep the persisted setting key for backward compatibility, but hide it from UI.
     }
 }

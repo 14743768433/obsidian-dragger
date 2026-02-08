@@ -5,10 +5,9 @@ export function shouldSeparateBlock(type: BlockType, adjacentLineText: string | 
     if (adjacentLineText.trim().length === 0) return false;
 
     const trimmed = adjacentLineText.trimStart();
-    if (type === BlockType.Blockquote) {
-        return false;
-    }
-    if (type === BlockType.Table) {
+    if (trimmed.startsWith('|')) {
+        // Keep quote/callout flows compact, but separate normal/table blocks from table rows.
+        if (type === BlockType.Blockquote || type === BlockType.Callout) return false;
         return trimmed.startsWith('|');
     }
 
@@ -18,11 +17,6 @@ export function shouldSeparateBlock(type: BlockType, adjacentLineText: string | 
 function isBlockquoteLikeLine(line: string | null): boolean {
     if (!line) return false;
     return /^(> ?)+/.test(line.trimStart());
-}
-
-function isTableRowLine(line: string | null): boolean {
-    if (!line) return false;
-    return line.trimStart().startsWith('|');
 }
 
 function getFirstNonEmptyLine(content: string): string | null {
@@ -50,12 +44,14 @@ export function getBoundarySpacing(params: {
         || sourceBlockType === BlockType.Callout
         || isBlockquoteLikeLine(firstNonEmptySourceLine);
     const prevIsQuoteLike = isBlockquoteLikeLine(prevText);
+    const nextIsQuoteLike = isBlockquoteLikeLine(nextText);
 
-    const resetQuoteDepth = prevIsQuoteLike && !sourceIsQuoteLike;
+    // Quote depth should reset only when insertion actually leaves the quote flow.
+    const resetQuoteDepth = prevIsQuoteLike && !nextIsQuoteLike && !sourceIsQuoteLike;
 
     return {
         needsLeadingBlank: resetQuoteDepth,
-        needsTrailingBlank: isTableRowLine(nextText),
+        needsTrailingBlank: shouldSeparateBlock(sourceBlockType, nextText),
         resetQuoteDepth,
     };
 }

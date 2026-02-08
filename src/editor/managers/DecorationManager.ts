@@ -88,8 +88,10 @@ export class DecorationManager {
                         } else if (block.type === BlockType.Blockquote) {
                             processedLines.add(lineNumber);
                         } else {
-                            for (let i = block.startLine; i <= block.endLine; i++) {
-                                processedLines.add(i + 1);
+                            const startLineNumber = block.startLine + 1;
+                            const endLineNumber = block.endLine + 1;
+                            for (let ln = startLineNumber; ln <= endLineNumber; ln++) {
+                                processedLines.add(ln);
                             }
                         }
                     }

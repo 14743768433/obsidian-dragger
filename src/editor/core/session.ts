@@ -1,18 +1,42 @@
+import { EditorView } from '@codemirror/view';
 import { BlockInfo } from '../../types';
 import { DROP_HIGHLIGHT_SELECTOR, DROP_INDICATOR_SELECTOR } from './selectors';
 
-let activeDragSourceBlock: BlockInfo | null = null;
+const activeDragSourceByView = new WeakMap<EditorView, BlockInfo | null>();
+const knownViews = new Set<EditorView>();
 
-export function setActiveDragSourceBlock(block: BlockInfo | null): void {
-    activeDragSourceBlock = block;
+export function setActiveDragSourceBlock(view: EditorView, block: BlockInfo | null): void {
+    if (block) {
+        activeDragSourceByView.set(view, block);
+        knownViews.add(view);
+        return;
+    }
+    activeDragSourceByView.delete(view);
+    knownViews.delete(view);
 }
 
-export function getActiveDragSourceBlock(): BlockInfo | null {
-    return activeDragSourceBlock;
+export function getActiveDragSourceBlock(view?: EditorView): BlockInfo | null {
+    if (view) {
+        return activeDragSourceByView.get(view) ?? null;
+    }
+
+    for (const knownView of knownViews) {
+        const block = activeDragSourceByView.get(knownView);
+        if (block) return block;
+    }
+    return null;
 }
 
-export function clearActiveDragSourceBlock(): void {
-    activeDragSourceBlock = null;
+export function clearActiveDragSourceBlock(view: EditorView): void {
+    activeDragSourceByView.delete(view);
+    knownViews.delete(view);
+}
+
+export function clearAllActiveDragSourceBlocks(): void {
+    for (const knownView of Array.from(knownViews)) {
+        activeDragSourceByView.delete(knownView);
+    }
+    knownViews.clear();
 }
 
 export function hideDropVisuals(scope: ParentNode = document): void {

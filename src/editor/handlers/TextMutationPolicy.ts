@@ -62,6 +62,8 @@ export class TextMutationPolicy {
                 buildIndentStringFromSample: (sample, width) =>
                     this.lineParsingService.buildIndentStringFromSample(sample, width),
                 buildTargetMarker,
+                markerConversionScope: 'root',
+                getListContext: (activeDoc, lineNumber) => this.getListContext(activeDoc, lineNumber),
                 listContextLineNumberOverride,
                 listIndentDeltaOverride,
                 listTargetIndentWidthOverride,

@@ -44,6 +44,8 @@ function createDeps(overrides?: Partial<DropTargetCalculatorDeps>): DropTargetCa
         clampTargetLineNumber: (_total, lineNumber) => lineNumber,
         getPreviousNonEmptyLineNumber: (_doc, lineNumber) => (lineNumber >= 1 ? lineNumber : null),
         shouldPreventDropIntoDifferentContainer: () => false,
+        getListContext: () => ({ indentWidth: 0, indentRaw: '', markerType: 'unordered' }),
+        getIndentUnitWidth: () => 2,
         getBlockInfoForEmbed: () => null,
         getIndentUnitWidthForDoc: () => 2,
         getLineRect: () => ({ left: 10, width: 100 }),
@@ -55,11 +57,23 @@ function createDeps(overrides?: Partial<DropTargetCalculatorDeps>): DropTargetCa
     };
 }
 
-function createSourceBlock(content = 'source'): BlockInfo {
+function createSourceBlock(content = 'source', startLine = 0, endLine = 0): BlockInfo {
     return {
         type: BlockType.Paragraph,
-        startLine: 0,
-        endLine: 0,
+        startLine,
+        endLine,
+        from: 0,
+        to: content.length,
+        indentLevel: 0,
+        content,
+    };
+}
+
+function createListSourceBlock(content = '- item', startLine = 0, endLine = 0): BlockInfo {
+    return {
+        type: BlockType.ListItem,
+        startLine,
+        endLine,
         from: 0,
         to: content.length,
         indentLevel: 0,
@@ -114,10 +128,66 @@ describe('DropTargetCalculator', () => {
         const target = calculator.getDropTargetInfo({
             clientX: 40,
             clientY: 5,
-            dragSource: createSourceBlock(),
+            dragSource: createSourceBlock('outside', 5, 5),
         });
 
         expect(target).not.toBeNull();
         expect(target?.lineNumber).toBe(1);
+    });
+
+    it('rejects drop when pointer is inside rendered table cell', () => {
+        const view = createViewStub('| h |\n| v |');
+        const tableWidget = document.createElement('div');
+        tableWidget.className = 'cm-table-widget';
+        const cell = document.createElement('div');
+        cell.className = 'cm-table-cell';
+        const line = document.createElement('div');
+        line.className = 'cm-line';
+        cell.appendChild(line);
+        tableWidget.appendChild(cell);
+        view.dom.appendChild(tableWidget);
+        mockElementFromPoint(line);
+
+        const calculator = new DropTargetCalculator(view, createDeps());
+        const validation = calculator.resolveValidatedDropTarget({
+            clientX: 20,
+            clientY: 8,
+            dragSource: createSourceBlock(),
+        });
+
+        expect(validation.allowed).toBe(false);
+        expect(validation.reason).toBe('table_cell');
+    });
+
+    it('rejects self-range drop before indicator rendering', () => {
+        mockElementFromPoint(null);
+        const view = createViewStub('- first\n- second');
+        const calculator = new DropTargetCalculator(view, createDeps());
+
+        const validation = calculator.resolveValidatedDropTarget({
+            clientX: 40,
+            clientY: 5,
+            dragSource: createListSourceBlock('- first', 0, 0),
+        });
+
+        expect(validation.allowed).toBe(false);
+        expect(validation.reason).toBe('self_range_blocked');
+    });
+
+    it('returns no_anchor when insertion anchor cannot be resolved', () => {
+        mockElementFromPoint(null);
+        const view = createViewStub('plain line');
+        const calculator = new DropTargetCalculator(view, createDeps({
+            getInsertionAnchorY: () => null,
+        }));
+
+        const validation = calculator.resolveValidatedDropTarget({
+            clientX: 40,
+            clientY: 5,
+            dragSource: createSourceBlock('outside', 4, 4),
+        });
+
+        expect(validation.allowed).toBe(false);
+        expect(validation.reason).toBe('no_anchor');
     });
 });

@@ -21,6 +21,10 @@ export default class DragNDropPlugin extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        if (this.settings.enableCrossFileDrag) {
+            this.settings.enableCrossFileDrag = false;
+            await this.saveData(this.settings);
+        }
         this.applySettings();
     }
 

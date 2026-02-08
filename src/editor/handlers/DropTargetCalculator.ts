@@ -1,6 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo, BlockType } from '../../types';
-import { DocLike, ParsedLine } from '../core/protocol-types';
+import { validateInPlaceDrop } from '../core/drop-validation';
+import { DocLike, ListContext, ParsedLine } from '../core/protocol-types';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 import { isPointInsideRenderedTableCell } from '../core/table-guard';
 import { ListDropTargetCalculator } from './ListDropTargetCalculator';
@@ -21,6 +22,8 @@ export interface DropTargetCalculatorDeps {
     clampTargetLineNumber: (totalLines: number, lineNumber: number) => number;
     getPreviousNonEmptyLineNumber: (doc: DocLike, lineNumber: number) => number | null;
     shouldPreventDropIntoDifferentContainer: (sourceBlock: BlockInfo, targetLineNumber: number) => boolean;
+    getListContext: (doc: DocLike, lineNumber: number) => ListContext;
+    getIndentUnitWidth: (sample: string) => number;
     getBlockInfoForEmbed: (embedEl: HTMLElement) => BlockInfo | null;
     getIndentUnitWidthForDoc: (doc: DocLike) => number;
     getLineRect: (lineNumber: number) => { left: number; width: number } | undefined;
@@ -29,6 +32,26 @@ export interface DropTargetCalculatorDeps {
     getBlockRect: (startLineNumber: number, endLineNumber: number) => { top: number; left: number; width: number; height: number } | undefined;
     clampNumber: (value: number, min: number, max: number) => number;
 }
+
+export type DropRejectReason =
+    | 'table_cell'
+    | 'no_target'
+    | 'container_policy'
+    | 'no_anchor'
+    | 'self_range_blocked'
+    | 'self_embedding';
+
+export type DropValidationResult = {
+    allowed: boolean;
+    reason?: DropRejectReason;
+    targetLineNumber?: number;
+    listContextLineNumber?: number;
+    listIndentDelta?: number;
+    listTargetIndentWidth?: number;
+    indicatorY?: number;
+    lineRect?: { left: number; width: number };
+    highlightRect?: { top: number; left: number; width: number; height: number };
+};
 
 export class DropTargetCalculator {
     private readonly listDropTargetCalculator: ListDropTargetCalculator;
@@ -46,8 +69,24 @@ export class DropTargetCalculator {
     }
 
     getDropTargetInfo(info: { clientX: number; clientY: number; dragSource?: BlockInfo | null }): DropTargetInfo | null {
-        if (isPointInsideRenderedTableCell(this.view, info.clientX, info.clientY)) {
+        const validated = this.resolveValidatedDropTarget(info);
+        if (!validated.allowed || typeof validated.targetLineNumber !== 'number' || typeof validated.indicatorY !== 'number') {
             return null;
+        }
+        return {
+            lineNumber: validated.targetLineNumber,
+            indicatorY: validated.indicatorY,
+            listContextLineNumber: validated.listContextLineNumber,
+            listIndentDelta: validated.listIndentDelta,
+            listTargetIndentWidth: validated.listTargetIndentWidth,
+            lineRect: validated.lineRect,
+            highlightRect: validated.highlightRect,
+        };
+    }
+
+    resolveValidatedDropTarget(info: { clientX: number; clientY: number; dragSource?: BlockInfo | null }): DropValidationResult {
+        if (isPointInsideRenderedTableCell(this.view, info.clientX, info.clientY)) {
+            return { allowed: false, reason: 'table_cell' };
         }
         const dragSource = info.dragSource ?? null;
         const embedEl = this.getEmbedElementAtPoint(info.clientX, info.clientY);
@@ -58,17 +97,38 @@ export class DropTargetCalculator {
                 const showAtBottom = info.clientY > rect.top + rect.height / 2;
                 const lineNumber = this.deps.clampTargetLineNumber(this.view.state.doc.lines, showAtBottom ? block.endLine + 2 : block.startLine + 1);
                 if (dragSource && this.deps.shouldPreventDropIntoDifferentContainer(dragSource, lineNumber)) {
-                    return null;
+                    return { allowed: false, reason: 'container_policy' };
+                }
+                if (dragSource) {
+                    const inPlaceValidation = validateInPlaceDrop({
+                        doc: this.view.state.doc,
+                        sourceBlock: dragSource,
+                        targetLineNumber: lineNumber,
+                        parseLineWithQuote: this.deps.parseLineWithQuote,
+                        getListContext: this.deps.getListContext,
+                        getIndentUnitWidth: this.deps.getIndentUnitWidth,
+                    });
+                    if (inPlaceValidation.inSelfRange && !inPlaceValidation.allowInPlaceIndentChange) {
+                        return {
+                            allowed: false,
+                            reason: inPlaceValidation.rejectReason ?? 'self_range_blocked',
+                        };
+                    }
                 }
                 const indicatorY = showAtBottom ? rect.bottom : rect.top;
-                return { lineNumber, indicatorY, lineRect: { left: rect.left, width: rect.width } };
+                return {
+                    allowed: true,
+                    targetLineNumber: lineNumber,
+                    indicatorY,
+                    lineRect: { left: rect.left, width: rect.width },
+                };
             }
         }
 
         const vertical = this.computeVerticalTarget(info, dragSource);
-        if (!vertical) return null;
+        if (!vertical) return { allowed: false, reason: 'no_target' };
         if (dragSource && this.deps.shouldPreventDropIntoDifferentContainer(dragSource, vertical.targetLineNumber)) {
-            return null;
+            return { allowed: false, reason: 'container_policy' };
         }
 
         const listTarget = this.listDropTargetCalculator.computeListTarget({
@@ -80,8 +140,28 @@ export class DropTargetCalculator {
             clientX: info.clientX,
         });
 
+        if (dragSource) {
+            const inPlaceValidation = validateInPlaceDrop({
+                doc: this.view.state.doc,
+                sourceBlock: dragSource,
+                targetLineNumber: vertical.targetLineNumber,
+                parseLineWithQuote: this.deps.parseLineWithQuote,
+                getListContext: this.deps.getListContext,
+                getIndentUnitWidth: this.deps.getIndentUnitWidth,
+                listContextLineNumberOverride: listTarget.listContextLineNumber,
+                listIndentDeltaOverride: listTarget.listIndentDelta,
+                listTargetIndentWidthOverride: listTarget.listTargetIndentWidth,
+            });
+            if (inPlaceValidation.inSelfRange && !inPlaceValidation.allowInPlaceIndentChange) {
+                return {
+                    allowed: false,
+                    reason: inPlaceValidation.rejectReason ?? 'self_range_blocked',
+                };
+            }
+        }
+
         const indicatorY = this.deps.getInsertionAnchorY(vertical.targetLineNumber);
-        if (indicatorY === null) return null;
+        if (indicatorY === null) return { allowed: false, reason: 'no_anchor' };
 
         const lineRectSourceLineNumber = listTarget.lineRectSourceLineNumber
             ?? vertical.lineRectSourceLineNumber;
@@ -99,7 +179,8 @@ export class DropTargetCalculator {
             }
         }
         return {
-            lineNumber: vertical.targetLineNumber,
+            allowed: true,
+            targetLineNumber: vertical.targetLineNumber,
             indicatorY,
             listContextLineNumber: listTarget.listContextLineNumber,
             listIndentDelta: listTarget.listIndentDelta,

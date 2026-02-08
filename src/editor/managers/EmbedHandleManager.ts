@@ -19,6 +19,8 @@ export class EmbedHandleManager {
     private readonly embedHandles = new Map<HTMLElement, EmbedHandleEntry>();
     private observer: MutationObserver | null = null;
     private pendingScan = false;
+    private rafId: number | null = null;
+    private destroyed = false;
     private readonly onScrollOrResize = () => this.updateHandlePositions();
 
     constructor(
@@ -32,6 +34,7 @@ export class EmbedHandleManager {
     }
 
     start(): void {
+        this.destroyed = false;
         if (!this.observer) {
             this.observer = new MutationObserver(() => this.scheduleScan());
             this.observer.observe(this.view.dom, {
@@ -48,15 +51,19 @@ export class EmbedHandleManager {
     }
 
     scheduleScan(): void {
+        if (this.destroyed) return;
         if (this.pendingScan) return;
         this.pendingScan = true;
-        requestAnimationFrame(() => {
+        this.rafId = requestAnimationFrame(() => {
+            this.rafId = null;
+            if (this.destroyed) return;
             this.pendingScan = false;
             this.rescan();
         });
     }
 
     rescan(): void {
+        if (this.destroyed) return;
         if (!this.shouldRenderEmbedHandles()) {
             for (const [embedEl, entry] of this.embedHandles.entries()) {
                 this.cleanupHandle(embedEl, entry);
@@ -110,7 +117,12 @@ export class EmbedHandleManager {
     }
 
     destroy(): void {
+        this.destroyed = true;
         this.pendingScan = false;
+        if (this.rafId !== null) {
+            cancelAnimationFrame(this.rafId);
+            this.rafId = null;
+        }
         if (this.observer) {
             this.observer.disconnect();
             this.observer = null;

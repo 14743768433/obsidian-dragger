@@ -1,5 +1,6 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo } from '../../types';
+import { validateInPlaceDrop } from '../core/drop-validation';
 import { DocLike, DocLikeWithRange, ListContext, ParsedLine } from '../core/protocol-types';
 import { ListRenumberer } from './ListRenumberer';
 
@@ -67,50 +68,19 @@ export class BlockMover {
             return;
         }
 
-        const targetLineIdx = targetLineNumber - 1;
-        const inSelfRange = targetLineIdx >= sourceBlock.startLine && targetLineIdx <= sourceBlock.endLine + 1;
-        let allowInPlaceIndentChange = false;
-
-        if (inSelfRange && (listTargetIndentWidthOverride !== undefined || listIndentDeltaOverride !== undefined)) {
-            const sourceLineText = doc.line(sourceBlock.startLine + 1).text;
-            const sourceParsed = this.deps.parseLineWithQuote(sourceLineText);
-            if (sourceParsed.isListItem) {
-                let targetIndentWidth = listTargetIndentWidthOverride;
-                if (targetIndentWidth === undefined) {
-                    const listContextLineNumber = listContextLineNumberOverride ?? targetLineNumber;
-                    const targetContext = this.deps.getListContext(doc, listContextLineNumber);
-                    const indentSample = targetContext ? targetContext.indentRaw : sourceParsed.indentRaw;
-                    const indentUnitWidth = this.deps.getIndentUnitWidth(indentSample || sourceParsed.indentRaw);
-                    const indentDeltaBase = (targetContext ? targetContext.indentWidth : 0) - sourceParsed.indentWidth;
-                    targetIndentWidth = sourceParsed.indentWidth + indentDeltaBase + ((listIndentDeltaOverride ?? 0) * indentUnitWidth);
-                }
-                if (typeof targetIndentWidth === 'number') {
-                    const isAfterSelf = targetLineIdx === sourceBlock.endLine + 1;
-                    const isSameLine = targetLineIdx === sourceBlock.startLine;
-                    const sourceLineNumber = sourceBlock.startLine + 1;
-                    const sourceEndLineNumber = sourceBlock.endLine + 1;
-                    const listContextLineNumber = listContextLineNumberOverride ?? targetLineNumber;
-                    const isSelfContext = listContextLineNumber === sourceLineNumber;
-                    const isContextInsideSource = listContextLineNumber >= sourceLineNumber
-                        && listContextLineNumber <= sourceEndLineNumber;
-
-                    // Prevent self-embedding: dragging a list root to its own tail should never increase indent.
-                    if (isAfterSelf && isContextInsideSource && targetIndentWidth > sourceParsed.indentWidth) {
-                        return;
-                    }
-
-                    if (isAfterSelf && targetIndentWidth !== sourceParsed.indentWidth) {
-                        allowInPlaceIndentChange = true;
-                    } else if (isSameLine && targetIndentWidth !== sourceParsed.indentWidth && !isSelfContext) {
-                        allowInPlaceIndentChange = true;
-                    } else if (!isAfterSelf && targetIndentWidth < sourceParsed.indentWidth) {
-                        allowInPlaceIndentChange = true;
-                    }
-                }
-            }
-        }
-
-        if (inSelfRange && !allowInPlaceIndentChange) {
+        const inPlaceValidation = validateInPlaceDrop({
+            doc,
+            sourceBlock,
+            targetLineNumber,
+            parseLineWithQuote: this.deps.parseLineWithQuote,
+            getListContext: this.deps.getListContext,
+            getIndentUnitWidth: this.deps.getIndentUnitWidth,
+            listContextLineNumberOverride,
+            listIndentDeltaOverride,
+            listTargetIndentWidthOverride,
+        });
+        const allowInPlaceIndentChange = inPlaceValidation.allowInPlaceIndentChange;
+        if (inPlaceValidation.inSelfRange && !allowInPlaceIndentChange) {
             return;
         }
 

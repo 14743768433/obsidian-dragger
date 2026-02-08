@@ -1,5 +1,7 @@
 import { DocLike, ListContext, ListContextValue, MarkerType, ParsedLine } from '../protocol-types';
 
+export type MarkerConversionScope = 'root' | 'all';
+
 export function buildTargetMarker(
     target: Pick<ListContextValue, 'markerType'>,
     source: { markerType: MarkerType; marker: string }
@@ -16,8 +18,9 @@ export function buildIndentStringFromSample(sample: string, width: number, tabSi
     const safeWidth = Math.max(0, width);
     if (safeWidth === 0) return '';
     if (sample.includes('\t')) {
-        const tabs = Math.max(0, Math.round(safeWidth / tabSize));
-        return '\t'.repeat(tabs);
+        const tabs = Math.max(0, Math.floor(safeWidth / tabSize));
+        const spaces = Math.max(0, safeWidth - tabs * tabSize);
+        return '\t'.repeat(tabs) + ' '.repeat(spaces);
     }
     return ' '.repeat(safeWidth);
 }
@@ -33,19 +36,82 @@ export function getListContext(
     lineNumber: number,
     parseLineWithQuote: (line: string) => ParsedLine
 ): ListContext {
-    const current = lineNumber <= doc.lines ? doc.line(lineNumber).text : '';
-    const currentParsed = parseLineWithQuote(current);
-    if (currentParsed.isListItem) {
-        return { indentWidth: currentParsed.indentWidth, indentRaw: currentParsed.indentRaw, markerType: currentParsed.markerType };
-    }
+    return getListContextNearLine(doc, lineNumber, parseLineWithQuote);
+}
 
-    const prevLineNumber = lineNumber - 1;
-    if (prevLineNumber >= 1) {
-        const prevText = doc.line(prevLineNumber).text;
-        const prevParsed = parseLineWithQuote(prevText);
-        if (prevParsed.isListItem) {
-            return { indentWidth: prevParsed.indentWidth, indentRaw: prevParsed.indentRaw, markerType: prevParsed.markerType };
+export interface ListContextNearLineOptions {
+    scanUp?: number;
+    scanDown?: number;
+    skipBlankLines?: boolean;
+    stopAtNonListContent?: boolean;
+}
+
+function parseListContextFromLine(
+    doc: DocLike,
+    lineNumber: number,
+    parseLineWithQuote: (line: string) => ParsedLine
+): { context: ListContextValue | null; isBlank: boolean; isList: boolean } {
+    if (lineNumber < 1 || lineNumber > doc.lines) {
+        return { context: null, isBlank: true, isList: false };
+    }
+    const text = doc.line(lineNumber).text;
+    const isBlank = text.trim().length === 0;
+    const parsed = parseLineWithQuote(text);
+    if (!parsed.isListItem) {
+        return { context: null, isBlank, isList: false };
+    }
+    return {
+        context: {
+            indentWidth: parsed.indentWidth,
+            indentRaw: parsed.indentRaw,
+            markerType: parsed.markerType,
+        },
+        isBlank,
+        isList: true,
+    };
+}
+
+export function getListContextNearLine(
+    doc: DocLike,
+    lineNumber: number,
+    parseLineWithQuote: (line: string) => ParsedLine,
+    options?: ListContextNearLineOptions
+): ListContext {
+    const scanUp = Math.max(0, options?.scanUp ?? 8);
+    const scanDown = Math.max(0, options?.scanDown ?? 3);
+    const skipBlankLines = options?.skipBlankLines ?? true;
+    const stopAtNonListContent = options?.stopAtNonListContent ?? true;
+
+    const current = parseListContextFromLine(doc, lineNumber, parseLineWithQuote);
+    if (current.context) return current.context;
+    if (!skipBlankLines && current.isBlank) return null;
+
+    let stopUp = false;
+    let stopDown = false;
+    for (let distance = 1; distance <= Math.max(scanUp, scanDown); distance++) {
+        if (!stopUp && distance <= scanUp) {
+            const upLineNumber = lineNumber - distance;
+            if (upLineNumber >= 1) {
+                const up = parseListContextFromLine(doc, upLineNumber, parseLineWithQuote);
+                if (up.context) return up.context;
+                if (!up.isBlank && !up.isList && stopAtNonListContent) {
+                    stopUp = true;
+                }
+            }
         }
+
+        if (!stopDown && distance <= scanDown) {
+            const downLineNumber = lineNumber + distance;
+            if (downLineNumber <= doc.lines) {
+                const down = parseListContextFromLine(doc, downLineNumber, parseLineWithQuote);
+                if (down.context) return down.context;
+                if (!down.isBlank && !down.isList && stopAtNonListContent) {
+                    stopDown = true;
+                }
+            }
+        }
+
+        if (stopUp && stopDown) break;
     }
 
     return null;
@@ -64,6 +130,63 @@ export function getSourceListBase(
     return null;
 }
 
+export interface ListIndentPlan {
+    listContextLineNumber: number;
+    targetContext: ListContext;
+    indentSample: string;
+    indentUnitWidth: number;
+    indentDelta: number;
+    targetIndentWidth: number;
+    sourceBaseIndentWidth: number;
+}
+
+export function computeListIndentPlan(params: {
+    doc: DocLike;
+    sourceBase: { indentWidth: number; indentRaw: string };
+    targetLineNumber: number;
+    parseLineWithQuote: (line: string) => ParsedLine;
+    getIndentUnitWidth: (sample: string) => number;
+    getListContext?: (doc: DocLike, lineNumber: number) => ListContext;
+    listContextLineNumberOverride?: number;
+    listIndentDeltaOverride?: number;
+    listTargetIndentWidthOverride?: number;
+}): ListIndentPlan {
+    const {
+        doc,
+        sourceBase,
+        targetLineNumber,
+        parseLineWithQuote,
+        getIndentUnitWidth: getIndentUnitWidthFn,
+        getListContext: getListContextFn,
+        listContextLineNumberOverride,
+        listIndentDeltaOverride,
+        listTargetIndentWidthOverride,
+    } = params;
+
+    const listContextLineNumber = listContextLineNumberOverride ?? targetLineNumber;
+    const targetContext = getListContextFn
+        ? getListContextFn(doc, listContextLineNumber)
+        : getListContextNearLine(doc, listContextLineNumber, parseLineWithQuote);
+    const indentSample = targetContext ? targetContext.indentRaw : sourceBase.indentRaw;
+    const indentUnitWidth = getIndentUnitWidthFn(indentSample || sourceBase.indentRaw);
+    const indentDeltaBase = (targetContext ? targetContext.indentWidth : 0) - sourceBase.indentWidth;
+    let indentDelta = indentDeltaBase + ((listIndentDeltaOverride ?? 0) * indentUnitWidth);
+
+    if (typeof listTargetIndentWidthOverride === 'number') {
+        indentDelta = listTargetIndentWidthOverride - sourceBase.indentWidth;
+    }
+
+    return {
+        listContextLineNumber,
+        targetContext,
+        indentSample,
+        indentUnitWidth,
+        indentDelta,
+        targetIndentWidth: sourceBase.indentWidth + indentDelta,
+        sourceBaseIndentWidth: sourceBase.indentWidth,
+    };
+}
+
 export function adjustListToTargetContext(params: {
     doc: DocLike;
     sourceContent: string;
@@ -72,6 +195,8 @@ export function adjustListToTargetContext(params: {
     getIndentUnitWidth: (sample: string) => number;
     buildIndentStringFromSample: (sample: string, width: number) => string;
     buildTargetMarker: (target: ListContextValue, source: { markerType: MarkerType; marker: string }) => string;
+    markerConversionScope?: MarkerConversionScope;
+    getListContext?: (doc: DocLike, lineNumber: number) => ListContext;
     listContextLineNumberOverride?: number;
     listIndentDeltaOverride?: number;
     listTargetIndentWidthOverride?: number;
@@ -84,6 +209,8 @@ export function adjustListToTargetContext(params: {
         getIndentUnitWidth: getIndentUnitWidthFn,
         buildIndentStringFromSample: buildIndentStringFromSampleFn,
         buildTargetMarker: buildTargetMarkerFn,
+        markerConversionScope,
+        getListContext: getListContextFn,
         listContextLineNumberOverride,
         listIndentDeltaOverride,
         listTargetIndentWidthOverride,
@@ -92,16 +219,18 @@ export function adjustListToTargetContext(params: {
     const lines = sourceContent.split('\n');
     const sourceBase = getSourceListBase(lines, parseLineWithQuote);
     if (!sourceBase) return sourceContent;
-
-    const listContextLineNumber = listContextLineNumberOverride ?? targetLineNumber;
-    const targetContext = getListContext(doc, listContextLineNumber, parseLineWithQuote);
-    const indentSample = targetContext ? targetContext.indentRaw : sourceBase.indentRaw;
-    const indentDeltaBase = (targetContext ? targetContext.indentWidth : 0) - sourceBase.indentWidth;
-    const indentUnitWidth = getIndentUnitWidthFn(indentSample || sourceBase.indentRaw);
-    let indentDelta = indentDeltaBase + ((listIndentDeltaOverride ?? 0) * indentUnitWidth);
-    if (typeof listTargetIndentWidthOverride === 'number') {
-        indentDelta = listTargetIndentWidthOverride - sourceBase.indentWidth;
-    }
+    const indentPlan = computeListIndentPlan({
+        doc,
+        sourceBase,
+        targetLineNumber,
+        parseLineWithQuote,
+        getIndentUnitWidth: getIndentUnitWidthFn,
+        getListContext: getListContextFn,
+        listContextLineNumberOverride,
+        listIndentDeltaOverride,
+        listTargetIndentWidthOverride,
+    });
+    const markerScope = markerConversionScope ?? 'root';
 
     const quoteAdjustedLines = lines.map((line) => {
         if (line.trim().length === 0) return line;
@@ -109,16 +238,25 @@ export function adjustListToTargetContext(params: {
         const rest = parsed.rest;
         if (!parsed.isListItem) {
             if (parsed.indentWidth >= sourceBase.indentWidth) {
-                const newIndent = buildIndentStringFromSampleFn(indentSample, parsed.indentWidth + indentDelta);
+                const newIndent = buildIndentStringFromSampleFn(
+                    indentPlan.indentSample,
+                    parsed.indentWidth + indentPlan.indentDelta
+                );
                 return `${parsed.quotePrefix}${newIndent}${rest.slice(parsed.indentRaw.length)}`;
             }
             return line;
         }
 
-        const newIndent = buildIndentStringFromSampleFn(indentSample, parsed.indentWidth + indentDelta);
+        const newIndent = buildIndentStringFromSampleFn(
+            indentPlan.indentSample,
+            parsed.indentWidth + indentPlan.indentDelta
+        );
         let marker = parsed.marker;
-        if (targetContext && parsed.indentWidth === sourceBase.indentWidth) {
-            marker = buildTargetMarkerFn(targetContext, parsed);
+        const shouldConvertMarker = markerScope === 'all'
+            ? !!indentPlan.targetContext
+            : !!indentPlan.targetContext && parsed.indentWidth === sourceBase.indentWidth;
+        if (shouldConvertMarker && indentPlan.targetContext) {
+            marker = buildTargetMarkerFn(indentPlan.targetContext, parsed);
         }
         return `${parsed.quotePrefix}${newIndent}${marker}${parsed.content}`;
     });

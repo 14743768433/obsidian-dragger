@@ -108,6 +108,23 @@ describe('block-mutation', () => {
         expect(result).toBe('\noutside paragraph\n');
     });
 
+    it('does not force quote reset when inserting between quote lines', () => {
+        const adjustBlockquoteDepth = vi.fn((text: string, targetDepth: number) => `${'> '.repeat(targetDepth)}${text}`);
+        const result = buildInsertText({
+            doc: createDoc(['> quote A', '> quote B']),
+            sourceBlockType: BlockType.Paragraph,
+            sourceContent: 'middle plain',
+            targetLineNumber: 2,
+            getBlockquoteDepthContext: () => 1,
+            getContentQuoteDepth: () => 0,
+            adjustBlockquoteDepth,
+            adjustListToTargetContext: (text) => text,
+        });
+
+        expect(adjustBlockquoteDepth).toHaveBeenCalledWith('middle plain', 1, 0);
+        expect(result).toBe('> middle plain\n');
+    });
+
     it('does not add an extra separator when moving blockquote content after blockquote', () => {
         const adjustBlockquoteDepth = vi.fn((text: string) => text.replace(/^> /gm, ''));
         const adjustListToTargetContext = vi.fn((text: string) => text.replace(/^- /gm, '1. '));
