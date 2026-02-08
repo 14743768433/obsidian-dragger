@@ -41,19 +41,21 @@ export function buildInsertText(params: {
     const shouldLockQuoteDepth = sourceBlockType === BlockType.CodeBlock
         || sourceBlockType === BlockType.Table
         || sourceBlockType === BlockType.MathBlock
-        || sourceBlockType === BlockType.Callout;
+        || sourceBlockType === BlockType.Callout
+        || sourceBlockType === BlockType.Blockquote;
     if (!shouldLockQuoteDepth) {
         const targetQuoteDepth = boundarySpacing.resetQuoteDepth
             ? 0
             : getBlockquoteDepthContextFn(doc, targetLineNumber);
         const sourceQuoteDepth = getContentQuoteDepthFn(sourceContent);
-        const isBlockquoteDrag = sourceBlockType === BlockType.Blockquote;
-        const effectiveSourceDepth = (isBlockquoteDrag && targetQuoteDepth < sourceQuoteDepth)
-            ? Math.max(0, sourceQuoteDepth - 1)
-            : sourceQuoteDepth;
-        text = adjustBlockquoteDepthFn(text, targetQuoteDepth, effectiveSourceDepth);
+        text = adjustBlockquoteDepthFn(text, targetQuoteDepth, sourceQuoteDepth);
     }
-    text = adjustListToTargetContextFn(text);
+
+    // Quote line moves should behave like plain text moves:
+    // keep source content unchanged instead of re-shaping markers/indent by target list context.
+    if (sourceBlockType !== BlockType.Blockquote) {
+        text = adjustListToTargetContextFn(text);
+    }
 
     if (boundarySpacing.needsLeadingBlank) text = '\n' + text;
     const trailingNewlines = 1 + (boundarySpacing.needsTrailingBlank ? 1 : 0);

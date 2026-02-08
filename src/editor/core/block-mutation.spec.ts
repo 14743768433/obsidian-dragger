@@ -109,6 +109,8 @@ describe('block-mutation', () => {
     });
 
     it('does not add an extra separator when moving blockquote content after blockquote', () => {
+        const adjustBlockquoteDepth = vi.fn((text: string) => text.replace(/^> /gm, ''));
+        const adjustListToTargetContext = vi.fn((text: string) => text.replace(/^- /gm, '1. '));
         const result = buildInsertText({
             doc: createDoc(['> a', '> b']),
             sourceBlockType: BlockType.Blockquote,
@@ -116,11 +118,33 @@ describe('block-mutation', () => {
             targetLineNumber: 3,
             getBlockquoteDepthContext: () => 1,
             getContentQuoteDepth: () => 1,
-            adjustBlockquoteDepth: (text) => text,
-            adjustListToTargetContext: (text) => text,
+            adjustBlockquoteDepth,
+            adjustListToTargetContext,
         });
 
+        expect(adjustBlockquoteDepth).not.toHaveBeenCalled();
+        expect(adjustListToTargetContext).not.toHaveBeenCalled();
         expect(result).toBe('> c\n');
+    });
+
+    it('keeps blockquote line text unchanged when moved into different quote depth context', () => {
+        const adjustBlockquoteDepth = vi.fn((text: string, targetDepth: number) => `${'> '.repeat(targetDepth)}${text}`);
+        const adjustListToTargetContext = vi.fn((text: string) => text.replace(/- /g, '1. '));
+        const source = '> > - keep marker';
+        const result = buildInsertText({
+            doc: createDoc(['> context']),
+            sourceBlockType: BlockType.Blockquote,
+            sourceContent: source,
+            targetLineNumber: 2,
+            getBlockquoteDepthContext: () => 1,
+            getContentQuoteDepth: () => 2,
+            adjustBlockquoteDepth,
+            adjustListToTargetContext,
+        });
+
+        expect(adjustBlockquoteDepth).not.toHaveBeenCalled();
+        expect(adjustListToTargetContext).not.toHaveBeenCalled();
+        expect(result).toBe(`${source}\n`);
     });
 
     it('adds trailing blank separation when inserting plain text before a table', () => {
