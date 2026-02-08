@@ -36,7 +36,7 @@ import {
 import { createDragHandleElement } from './core/handle-dom';
 import { DecorationManager } from './managers/DecorationManager';
 import { EmbedHandleManager } from './managers/EmbedHandleManager';
-import { getLineNumberElementForLine } from './core/handle-position';
+import { getLineNumberElementForLine, hasVisibleLineNumberGutter } from './core/handle-position';
 import { clampNumber, clampTargetLineNumber } from './utils/coordinate-utils';
 
 const HOVER_HIDDEN_LINE_NUMBER_CLASS = 'dnd-line-number-hover-hidden';
@@ -228,7 +228,22 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     return;
                 }
 
-                const handle = this.resolveVisibleHandleFromTarget(e.target);
+                const directHandle = this.resolveVisibleHandleFromTarget(e.target);
+                if (directHandle) {
+                    this.setActiveVisibleHandle(directHandle);
+                    return;
+                }
+
+                // When line numbers are visible, keep the original behavior:
+                // only show the hovered handle itself.
+                if (hasVisibleLineNumberGutter(this.view)) {
+                    this.setActiveVisibleHandle(null);
+                    return;
+                }
+
+                // Without line numbers, hovering anywhere on the current line's right area
+                // should reveal the left handle for that line.
+                const handle = this.resolveVisibleHandleFromPointerWhenLineNumbersHidden(e.clientX, e.clientY);
                 this.setActiveVisibleHandle(handle);
             }
 
@@ -296,6 +311,33 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     return directHandle;
                 }
                 return null;
+            }
+
+            private resolveVisibleHandleFromPointerWhenLineNumbersHidden(clientX: number, clientY: number): HTMLElement | null {
+                const contentRect = this.view.contentDOM.getBoundingClientRect();
+                if (
+                    clientX < contentRect.left
+                    || clientX > contentRect.right
+                    || clientY < contentRect.top
+                    || clientY > contentRect.bottom
+                ) {
+                    return null;
+                }
+
+                const blockInfo = this.dragSourceResolver.getDraggableBlockAtPoint(clientX, clientY);
+                if (!blockInfo) return null;
+                return this.resolveVisibleHandleForBlock(blockInfo);
+            }
+
+            private resolveVisibleHandleForBlock(blockInfo: BlockInfo): HTMLElement | null {
+                const selector = `.dnd-drag-handle[data-block-start="${blockInfo.startLine}"]`;
+                const candidates = Array.from(this.view.dom.querySelectorAll(selector)) as HTMLElement[];
+                if (candidates.length === 0) return null;
+
+                const inlineHandle = candidates.find((handle) => !handle.classList.contains('dnd-embed-handle'));
+                if (inlineHandle) return inlineHandle;
+
+                return candidates.find((handle) => this.embedHandleManager.isManagedHandle(handle)) ?? null;
             }
 
             private resolveHandleLineNumber(handle: HTMLElement): number | null {

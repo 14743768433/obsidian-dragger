@@ -80,6 +80,10 @@ export function getLineNumberElementForLine(view: EditorView, lineNumber: number
     return getClosestLineNumberElementByY(view, lineNumber) ?? getLineNumberElementByText(view, lineNumber);
 }
 
+export function hasVisibleLineNumberGutter(view: EditorView): boolean {
+    return getLineNumberGutterRect(view) !== null;
+}
+
 function getLineNumberTextRect(lineNumberEl: HTMLElement): DOMRect | null {
     if (!lineNumberEl.textContent?.trim()) return null;
     try {
