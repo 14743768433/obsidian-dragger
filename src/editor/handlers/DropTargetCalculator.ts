@@ -1,7 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo, BlockType } from '../../types';
 import { validateInPlaceDrop } from '../core/drop-validation';
-import { RulePosition, RuleTargetContainerType } from '../core/insertion-rule-matrix';
+import { InsertionRuleRejectReason, InsertionSlotContext } from '../core/insertion-rule-matrix';
 import { DocLike, ListContext, ParsedLine } from '../core/protocol-types';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 import { isPointInsideRenderedTableCell } from '../core/table-guard';
@@ -26,9 +26,8 @@ export interface DropTargetCalculatorDeps {
         sourceBlock: BlockInfo,
         targetLineNumber: number
     ) => {
-        targetContainerType: RuleTargetContainerType;
-        position: RulePosition;
-        decision: { allowDrop: boolean };
+        slotContext: InsertionSlotContext;
+        decision: { allowDrop: boolean; rejectReason?: string | null };
     };
     getListContext: (doc: DocLike, lineNumber: number) => ListContext;
     getIndentUnitWidth: (sample: string) => number;
@@ -49,10 +48,11 @@ export interface DropTargetCalculatorDeps {
 export type DropRejectReason =
     | 'table_cell'
     | 'no_target'
-    | 'container_policy'
     | 'no_anchor'
     | 'self_range_blocked'
-    | 'self_embedding';
+    | 'self_embedding'
+    | InsertionRuleRejectReason
+    | 'container_policy';
 
 export type DropValidationResult = {
     allowed: boolean;
@@ -119,7 +119,10 @@ export class DropTargetCalculator {
                     ? this.deps.resolveDropRuleAtInsertion(dragSource, lineNumber)
                     : null;
                 if (containerRule && !containerRule.decision.allowDrop) {
-                    const result = { allowed: false, reason: 'container_policy' } as const;
+                    const result = {
+                        allowed: false,
+                        reason: (containerRule.decision.rejectReason ?? 'container_policy') as DropRejectReason,
+                    };
                     this.deps.onDragTargetEvaluated?.({
                         sourceBlock: dragSource,
                         pointerType: info.pointerType ?? null,
@@ -135,8 +138,7 @@ export class DropTargetCalculator {
                         parseLineWithQuote: this.deps.parseLineWithQuote,
                         getListContext: this.deps.getListContext,
                         getIndentUnitWidth: this.deps.getIndentUnitWidth,
-                        targetContainerType: containerRule?.targetContainerType,
-                        containerPosition: containerRule?.position,
+                        slotContext: containerRule?.slotContext,
                     });
                     if (inPlaceValidation.inSelfRange && !inPlaceValidation.allowInPlaceIndentChange) {
                         const result = {
@@ -150,10 +152,10 @@ export class DropTargetCalculator {
                         });
                         return result;
                     }
-                    if (inPlaceValidation.rejectReason === 'container_policy') {
+                    if (!inPlaceValidation.inSelfRange && inPlaceValidation.rejectReason) {
                         const result = {
                             allowed: false,
-                            reason: 'container_policy' as const,
+                            reason: inPlaceValidation.rejectReason as DropRejectReason,
                         };
                         this.deps.onDragTargetEvaluated?.({
                             sourceBlock: dragSource,
@@ -193,7 +195,10 @@ export class DropTargetCalculator {
             ? this.deps.resolveDropRuleAtInsertion(dragSource, vertical.targetLineNumber)
             : null;
         if (containerRule && !containerRule.decision.allowDrop) {
-            const result = { allowed: false, reason: 'container_policy' } as const;
+            const result = {
+                allowed: false,
+                reason: (containerRule.decision.rejectReason ?? 'container_policy') as DropRejectReason,
+            };
             this.deps.onDragTargetEvaluated?.({
                 sourceBlock: dragSource,
                 pointerType: info.pointerType ?? null,
@@ -219,8 +224,7 @@ export class DropTargetCalculator {
                 parseLineWithQuote: this.deps.parseLineWithQuote,
                 getListContext: this.deps.getListContext,
                 getIndentUnitWidth: this.deps.getIndentUnitWidth,
-                targetContainerType: containerRule?.targetContainerType,
-                containerPosition: containerRule?.position,
+                slotContext: containerRule?.slotContext,
                 listContextLineNumberOverride: listTarget.listContextLineNumber,
                 listIndentDeltaOverride: listTarget.listIndentDelta,
                 listTargetIndentWidthOverride: listTarget.listTargetIndentWidth,
@@ -237,10 +241,10 @@ export class DropTargetCalculator {
                 });
                 return result;
             }
-            if (inPlaceValidation.rejectReason === 'container_policy') {
+            if (!inPlaceValidation.inSelfRange && inPlaceValidation.rejectReason) {
                 const result = {
                     allowed: false,
-                    reason: 'container_policy' as const,
+                    reason: inPlaceValidation.rejectReason as DropRejectReason,
                 };
                 this.deps.onDragTargetEvaluated?.({
                     sourceBlock: dragSource,

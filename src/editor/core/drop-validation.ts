@@ -1,13 +1,17 @@
 import { BlockInfo } from '../../types';
 import {
+    InsertionRuleRejectReason,
+    InsertionSlotContext,
     resolveInsertionRule,
-    RulePosition,
-    RuleTargetContainerType,
 } from './insertion-rule-matrix';
 import { computeListIndentPlan } from './mutations/list-mutation';
 import { DocLike, ListContext, ParsedLine } from './protocol-types';
 
-export type InPlaceDropRejectReason = 'self_range_blocked' | 'self_embedding' | 'container_policy';
+export type InPlaceDropRejectReason =
+    | 'self_range_blocked'
+    | 'self_embedding'
+    | 'container_policy'
+    | InsertionRuleRejectReason;
 
 export type InPlaceDropValidationResult = {
     inSelfRange: boolean;
@@ -24,8 +28,7 @@ export function validateInPlaceDrop(params: {
     parseLineWithQuote: (line: string) => ParsedLine;
     getListContext: (doc: DocLike, lineNumber: number) => ListContext;
     getIndentUnitWidth: (sample: string) => number;
-    targetContainerType?: RuleTargetContainerType;
-    containerPosition?: RulePosition;
+    slotContext?: InsertionSlotContext;
     listContextLineNumberOverride?: number;
     listIndentDeltaOverride?: number;
     listTargetIndentWidthOverride?: number;
@@ -37,24 +40,22 @@ export function validateInPlaceDrop(params: {
         parseLineWithQuote,
         getListContext,
         getIndentUnitWidth,
-        targetContainerType,
-        containerPosition,
+        slotContext,
         listContextLineNumberOverride,
         listIndentDeltaOverride,
         listTargetIndentWidthOverride,
     } = params;
 
-    if (typeof containerPosition === 'string') {
+    if (typeof slotContext === 'string') {
         const containerRule = resolveInsertionRule({
             sourceType: sourceBlock.type,
-            targetContainerType: targetContainerType ?? null,
-            position: containerPosition,
+            slotContext,
         });
         if (!containerRule.allowDrop) {
             return {
                 inSelfRange: false,
                 allowInPlaceIndentChange: false,
-                rejectReason: 'container_policy',
+                rejectReason: containerRule.rejectReason ?? 'container_policy',
             };
         }
     }

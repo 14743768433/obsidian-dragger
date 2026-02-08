@@ -27,7 +27,7 @@ describe('block-mutation', () => {
             });
 
             expect(adjustBlockquoteDepth).not.toHaveBeenCalled();
-            expect(result).toBe('\ncontent line\n');
+            expect(result).toBe('content line\n');
         }
     );
 
@@ -48,7 +48,7 @@ describe('block-mutation', () => {
         expect(result).toBe('> [!TIP]\n> inside\n');
     });
 
-    it('adjusts quote depth for normal paragraph moves', () => {
+    it('does not auto-adjust quote depth for normal paragraph moves', () => {
         const adjustBlockquoteDepth = vi.fn((text: string, targetDepth: number) => `${'> '.repeat(targetDepth)}${text}`);
         const result = buildInsertText({
             doc: createDoc(['plain context']),
@@ -61,11 +61,11 @@ describe('block-mutation', () => {
             adjustListToTargetContext: (text) => text,
         });
 
-        expect(adjustBlockquoteDepth).toHaveBeenCalledWith('plain', 2, 0);
-        expect(result).toBe('> > plain\n');
+        expect(adjustBlockquoteDepth).not.toHaveBeenCalled();
+        expect(result).toBe('plain\n');
     });
 
-    it('adds trailing blank separation for table rows', () => {
+    it('does not add trailing blank separation for table rows', () => {
         const result = buildInsertText({
             doc: createDoc(['| a |', '| b |']),
             sourceBlockType: BlockType.Table,
@@ -77,7 +77,7 @@ describe('block-mutation', () => {
             adjustListToTargetContext: (text) => text,
         });
 
-        expect(result).toBe('| moved |\n\n');
+        expect(result).toBe('| moved |\n');
     });
 
     it('does not inherit quote depth across a blank separator line', () => {
@@ -91,7 +91,7 @@ describe('block-mutation', () => {
         expect(depth).toBe(0);
     });
 
-    it('inserts plain content after callout with a separating blank line', () => {
+    it('does not reset quote depth after callout when spacing mutation is removed', () => {
         const adjustBlockquoteDepth = vi.fn((text: string, targetDepth: number) => `${'> '.repeat(targetDepth)}${text}`);
         const result = buildInsertText({
             doc: createDoc(['> [!TIP]', '> inside callout']),
@@ -104,8 +104,8 @@ describe('block-mutation', () => {
             adjustListToTargetContext: (text) => text,
         });
 
-        expect(adjustBlockquoteDepth).toHaveBeenCalledWith('outside paragraph', 0, 0);
-        expect(result).toBe('\noutside paragraph\n');
+        expect(adjustBlockquoteDepth).not.toHaveBeenCalled();
+        expect(result).toBe('outside paragraph\n');
     });
 
     it('does not force quote reset when inserting between quote lines', () => {
@@ -121,8 +121,8 @@ describe('block-mutation', () => {
             adjustListToTargetContext: (text) => text,
         });
 
-        expect(adjustBlockquoteDepth).toHaveBeenCalledWith('middle plain', 1, 0);
-        expect(result).toBe('> middle plain\n');
+        expect(adjustBlockquoteDepth).not.toHaveBeenCalled();
+        expect(result).toBe('middle plain\n');
     });
 
     it('does not add an extra separator when moving blockquote content after blockquote', () => {
@@ -164,7 +164,7 @@ describe('block-mutation', () => {
         expect(result).toBe(`${source}\n`);
     });
 
-    it('adds trailing blank separation when inserting plain text before a table', () => {
+    it('does not add trailing blank separation when inserting plain text before a table', () => {
         const result = buildInsertText({
             doc: createDoc(['| h |', '| - |', '| v |']),
             sourceBlockType: BlockType.Paragraph,
@@ -176,7 +176,7 @@ describe('block-mutation', () => {
             adjustListToTargetContext: (text) => text,
         });
 
-        expect(result).toBe('before table\n\n');
+        expect(result).toBe('before table\n');
     });
 
     it('does not add leading blank separation when inserting plain text after a table', () => {

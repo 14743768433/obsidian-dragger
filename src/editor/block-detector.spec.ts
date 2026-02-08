@@ -27,6 +27,15 @@ describe('block-detector', () => {
         expect(block?.endLine).toBe(1);
     });
 
+    it('keeps indented fenced code descendants inside list item subtree', () => {
+        const state = createState('- parent\n  ```ts\n  const x = 1\n  ```\nafter');
+        const block = detectBlock(state, 1);
+
+        expect(block).not.toBeNull();
+        expect(block?.type).toBe(BlockType.ListItem);
+        expect(block?.endLine).toBe(3);
+    });
+
     it('does not absorb following plain text into a task item block', () => {
         const state = createState('- [ ] task\nplain text');
         const block = detectBlock(state, 1);

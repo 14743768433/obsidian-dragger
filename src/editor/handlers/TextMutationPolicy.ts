@@ -1,14 +1,10 @@
 import { BlockInfo } from '../../types';
 import {
-    adjustBlockquoteDepth,
     adjustListToTargetContext,
     buildInsertText as buildInsertTextByPolicy,
     buildTargetMarker,
-    getBlockquoteDepthContext,
-    getContentQuoteDepth,
     getListContext,
 } from '../core/block-mutation';
-import { getBlockquoteDepthFromLine } from '../core/line-parsing';
 import { DocLike, ListContext, ParsedLine } from '../core/protocol-types';
 import { LineParsingService } from './LineParsingService';
 
@@ -43,16 +39,8 @@ export class TextMutationPolicy {
         listTargetIndentWidthOverride?: number
     ): string {
         return buildInsertTextByPolicy({
-            doc,
             sourceBlockType: sourceBlock.type,
             sourceContent,
-            targetLineNumber,
-            getBlockquoteDepthContext: (activeDoc, lineNumber) =>
-                getBlockquoteDepthContext(activeDoc, lineNumber, getBlockquoteDepthFromLine),
-            getContentQuoteDepth: (activeSourceContent) =>
-                getContentQuoteDepth(activeSourceContent, getBlockquoteDepthFromLine),
-            adjustBlockquoteDepth: (content, targetDepth, baseDepth) =>
-                adjustBlockquoteDepth(content, targetDepth, getBlockquoteDepthFromLine, baseDepth),
             adjustListToTargetContext: (content) => adjustListToTargetContext({
                 doc,
                 sourceContent: content,

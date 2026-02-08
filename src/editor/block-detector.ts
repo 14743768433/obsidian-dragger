@@ -239,10 +239,6 @@ function getListItemSubtreeRange(doc: Text, lineNumber: number, tabSize: number)
         }
 
         const nextIndent = getIndentWidth(nextText, tabSize);
-        const nextType = detectBlockType(nextText);
-        if (nextType !== BlockType.Paragraph && !nextInfo.isListItem) {
-            break;
-        }
         if (nextInfo.isListItem || nextIndent > currentIndent) {
             endLine = i;
             continue;

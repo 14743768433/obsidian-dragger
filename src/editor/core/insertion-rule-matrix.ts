@@ -1,82 +1,149 @@
 import { BlockType } from '../../types';
 
-export type RuleTargetContainerType =
-    | BlockType.ListItem
-    | BlockType.Blockquote
-    | BlockType.Callout
-    | null;
+export type InsertionSlotContext =
+    | 'inside_list'
+    | 'inside_quote_run'
+    | 'quote_before'
+    | 'quote_after'
+    | 'callout_after'
+    | 'table_before'
+    | 'hr_before'
+    | 'outside';
 
-export type RulePosition = 'inside' | 'before' | 'after' | 'boundary' | 'outside';
-
-type SourceFamily = 'list' | 'blockquote' | 'callout' | 'other';
+export type InsertionRuleRejectReason =
+    | 'inside_list'
+    | 'inside_quote_run'
+    | 'quote_boundary'
+    | 'callout_after'
+    | 'table_before'
+    | 'hr_before';
 
 export interface InsertionRuleInput {
     sourceType: BlockType;
-    targetContainerType: RuleTargetContainerType;
-    position: RulePosition;
+    slotContext: InsertionSlotContext;
 }
 
 export interface InsertionRuleDecision {
     allowDrop: boolean;
-    leadingBlank: boolean;
-    trailingBlank: boolean;
-    resetQuoteDepth: boolean;
+    rejectReason: InsertionRuleRejectReason | null;
 }
 
-const SOURCE_FAMILY_BY_TYPE: Partial<Record<BlockType, SourceFamily>> = {
-    [BlockType.ListItem]: 'list',
-    [BlockType.Blockquote]: 'blockquote',
-    [BlockType.Callout]: 'callout',
-};
+function isQuoteLikeType(type: BlockType): boolean {
+    return type === BlockType.Blockquote || type === BlockType.Callout;
+}
 
-const INSIDE_ALLOW_MATRIX: Record<
-Exclude<RuleTargetContainerType, null>,
-Record<SourceFamily, boolean>
-> = {
-    [BlockType.ListItem]: {
-        list: true,
-        blockquote: false,
-        callout: false,
-        other: false,
-    },
-    [BlockType.Blockquote]: {
-        list: false,
-        blockquote: true,
-        callout: false,
-        other: false,
-    },
-    [BlockType.Callout]: {
-        list: false,
-        blockquote: false,
-        callout: true,
-        other: false,
-    },
-};
+function isBlockquoteLikeLine(line: string | null): boolean {
+    if (!line) return false;
+    return /^(> ?)+/.test(line.trimStart());
+}
 
-function resolveSourceFamily(sourceType: BlockType): SourceFamily {
-    return SOURCE_FAMILY_BY_TYPE[sourceType] ?? 'other';
+function isCalloutLine(line: string | null): boolean {
+    if (!line) return false;
+    return /^(\s*> ?)+\s*\[!/.test(line.trimStart());
+}
+
+function isListItemLine(line: string | null): boolean {
+    if (!line) return false;
+    return /^\s*(?:[-*+]\s(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/.test(line);
+}
+
+function isTableLine(line: string | null): boolean {
+    if (!line) return false;
+    return line.trimStart().startsWith('|');
+}
+
+function isHorizontalRuleLine(line: string | null): boolean {
+    if (!line) return false;
+    const trimmed = line.trim();
+    if (trimmed.length < 3) return false;
+    return /^([-*_])(?:\s*\1){2,}$/.test(trimmed);
+}
+
+export function inferSlotContextFromAdjacentLines(input: {
+    prevText: string | null;
+    nextText: string | null;
+}): InsertionSlotContext {
+    const { prevText, nextText } = input;
+    const prevIsQuoteLike = isBlockquoteLikeLine(prevText);
+    const nextIsQuoteLike = isBlockquoteLikeLine(nextText);
+
+    if (isCalloutLine(prevText) && !nextIsQuoteLike) {
+        return 'callout_after';
+    }
+
+    const nextIsTable = isTableLine(nextText);
+    const prevIsTable = isTableLine(prevText);
+    if (nextIsTable && !prevIsTable) {
+        return 'table_before';
+    }
+
+    if (isHorizontalRuleLine(nextText)) {
+        return 'hr_before';
+    }
+
+    if (prevIsQuoteLike && nextIsQuoteLike) {
+        return 'inside_quote_run';
+    }
+    if (!prevIsQuoteLike && nextIsQuoteLike) {
+        return 'quote_before';
+    }
+    if (prevIsQuoteLike && !nextIsQuoteLike) {
+        return 'quote_after';
+    }
+
+    if (isListItemLine(prevText) && isListItemLine(nextText)) {
+        return 'inside_list';
+    }
+
+    return 'outside';
 }
 
 export function resolveInsertionRule(input: InsertionRuleInput): InsertionRuleDecision {
-    const sourceFamily = resolveSourceFamily(input.sourceType);
-    const targetType = input.targetContainerType;
-    const position = input.position;
     const decision: InsertionRuleDecision = {
         allowDrop: true,
-        leadingBlank: false,
-        trailingBlank: false,
-        resetQuoteDepth: false,
+        rejectReason: null,
     };
+    const sourceIsQuoteLike = isQuoteLikeType(input.sourceType);
 
-    if (targetType && position === 'inside') {
-        decision.allowDrop = INSIDE_ALLOW_MATRIX[targetType][sourceFamily];
+    if (input.slotContext === 'inside_list' && input.sourceType !== BlockType.ListItem) {
+        decision.allowDrop = false;
+        decision.rejectReason = 'inside_list';
     }
 
-    const targetIsQuoteLike = targetType === BlockType.Blockquote || targetType === BlockType.Callout;
-    const sourceIsQuoteLike = sourceFamily === 'blockquote' || sourceFamily === 'callout';
-    if (targetIsQuoteLike && position === 'after' && !sourceIsQuoteLike) {
-        decision.leadingBlank = true;
-        decision.resetQuoteDepth = true;
+    if (
+        input.slotContext === 'inside_quote_run'
+        && (!sourceIsQuoteLike || input.sourceType === BlockType.Callout)
+    ) {
+        decision.allowDrop = false;
+        decision.rejectReason = 'inside_quote_run';
+    }
+
+    if (
+        (input.slotContext === 'quote_before' || input.slotContext === 'quote_after')
+        && input.sourceType === BlockType.Callout
+    ) {
+        decision.allowDrop = false;
+        decision.rejectReason = 'quote_boundary';
+    }
+
+    if (input.slotContext === 'quote_after' && input.sourceType !== BlockType.Blockquote) {
+        decision.allowDrop = false;
+        decision.rejectReason = 'quote_boundary';
+    }
+
+    if (input.slotContext === 'callout_after') {
+        decision.allowDrop = false;
+        decision.rejectReason = 'callout_after';
+    }
+
+    if (input.slotContext === 'table_before') {
+        decision.allowDrop = false;
+        decision.rejectReason = 'table_before';
+    }
+
+    if (input.slotContext === 'hr_before') {
+        decision.allowDrop = false;
+        decision.rejectReason = 'hr_before';
     }
 
     return decision;

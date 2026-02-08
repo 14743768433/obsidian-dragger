@@ -31,11 +31,10 @@ describe('drop-validation', () => {
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
             getListContext: () => null,
             getIndentUnitWidth: () => 2,
-            targetContainerType: BlockType.ListItem,
-            containerPosition: 'inside',
+            slotContext: 'inside_list',
         });
 
         expect(result.allowInPlaceIndentChange).toBe(false);
-        expect(result.rejectReason).toBe('container_policy');
+        expect(result.rejectReason).toBe('inside_list');
     });
 });

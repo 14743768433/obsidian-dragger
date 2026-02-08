@@ -1,7 +1,7 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo } from '../../types';
 import { validateInPlaceDrop } from '../core/drop-validation';
-import { RulePosition, RuleTargetContainerType } from '../core/insertion-rule-matrix';
+import { InsertionSlotContext } from '../core/insertion-rule-matrix';
 import { DocLike, DocLikeWithRange, ListContext, ParsedLine } from '../core/protocol-types';
 import { ListRenumberer } from './ListRenumberer';
 
@@ -13,9 +13,8 @@ export interface BlockMoverDeps {
         sourceBlock: BlockInfo,
         targetLineNumber: number
     ) => {
-        targetContainerType: RuleTargetContainerType;
-        position: RulePosition;
-        decision: { allowDrop: boolean };
+        slotContext: InsertionSlotContext;
+        decision: { allowDrop: boolean; rejectReason?: string | null };
     };
     parseLineWithQuote: (line: string) => ParsedLine;
     getListContext: (doc: DocLike, lineNumber: number) => ListContext;
@@ -84,8 +83,7 @@ export class BlockMover {
             parseLineWithQuote: this.deps.parseLineWithQuote,
             getListContext: this.deps.getListContext,
             getIndentUnitWidth: this.deps.getIndentUnitWidth,
-            targetContainerType: containerRule.targetContainerType,
-            containerPosition: containerRule.position,
+            slotContext: containerRule.slotContext,
             listContextLineNumberOverride,
             listIndentDeltaOverride,
             listTargetIndentWidthOverride,

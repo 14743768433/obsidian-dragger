@@ -42,8 +42,7 @@ describe('BlockMover', () => {
             clampTargetLineNumber: (_total, lineNumber) => lineNumber,
             getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
             resolveDropRuleAtInsertion: () => ({
-                targetContainerType: null,
-                position: 'outside',
+                slotContext: 'outside',
                 decision: { allowDrop: false },
             }),
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
@@ -70,8 +69,7 @@ describe('BlockMover', () => {
             clampTargetLineNumber: (_total, lineNumber) => lineNumber,
             getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
             resolveDropRuleAtInsertion: () => ({
-                targetContainerType: null,
-                position: 'outside',
+                slotContext: 'outside',
                 decision: { allowDrop: true },
             }),
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
@@ -101,8 +99,7 @@ describe('BlockMover', () => {
             clampTargetLineNumber: (_total, lineNumber) => lineNumber,
             getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
             resolveDropRuleAtInsertion: () => ({
-                targetContainerType: null,
-                position: 'outside',
+                slotContext: 'outside',
                 decision: { allowDrop: true },
             }),
             parseLineWithQuote: (line) => parseLineWithQuote(line, 4),

@@ -44,8 +44,7 @@ function createDeps(overrides?: Partial<DropTargetCalculatorDeps>): DropTargetCa
         clampTargetLineNumber: (_total, lineNumber) => lineNumber,
         getPreviousNonEmptyLineNumber: (_doc, lineNumber) => (lineNumber >= 1 ? lineNumber : null),
         resolveDropRuleAtInsertion: () => ({
-            targetContainerType: null,
-            position: 'outside',
+            slotContext: 'outside',
             decision: { allowDrop: true },
         }),
         getListContext: () => ({ indentWidth: 0, indentRaw: '', markerType: 'unordered' }),
@@ -114,8 +113,7 @@ describe('DropTargetCalculator', () => {
         const view = createViewStub('plain line');
         const calculator = new DropTargetCalculator(view, createDeps({
             resolveDropRuleAtInsertion: () => ({
-                targetContainerType: null,
-                position: 'outside',
+                slotContext: 'outside',
                 decision: { allowDrop: false },
             }),
         }));
