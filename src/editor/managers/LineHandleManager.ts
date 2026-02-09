@@ -20,6 +20,7 @@ export class LineHandleManager {
     private pendingScan = false;
     private rafId: number | null = null;
     private destroyed = false;
+    private readonly onScrollOrResize = () => this.updateHandlePositions();
 
     constructor(
         private readonly view: EditorView,
@@ -33,6 +34,8 @@ export class LineHandleManager {
 
     start(): void {
         this.destroyed = false;
+        this.view.scrollDOM.addEventListener('scroll', this.onScrollOrResize, { passive: true });
+        window.addEventListener('resize', this.onScrollOrResize);
         this.rescan();
     }
 
@@ -150,6 +153,8 @@ export class LineHandleManager {
             cancelAnimationFrame(this.rafId);
             this.rafId = null;
         }
+        this.view.scrollDOM.removeEventListener('scroll', this.onScrollOrResize);
+        window.removeEventListener('resize', this.onScrollOrResize);
         for (const entry of this.lineHandles.values()) {
             entry.handle.remove();
         }
