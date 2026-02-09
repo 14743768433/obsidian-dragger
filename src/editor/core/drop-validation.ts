@@ -64,9 +64,25 @@ export function validateInPlaceDrop(params: {
     }
 
     const targetLineIdx = targetLineNumber - 1;
-    const inSelfRange = targetLineIdx >= sourceBlock.startLine && targetLineIdx <= sourceBlock.endLine + 1;
+    const compositeRanges = sourceBlock.compositeSelection?.ranges ?? [];
+    const hasCompositeSelection = compositeRanges.length > 1;
+    const inSelfRange = hasCompositeSelection
+        ? compositeRanges.some((range) => {
+            const start = Math.min(range.startLine, range.endLine);
+            const end = Math.max(range.startLine, range.endLine);
+            return targetLineIdx >= start && targetLineIdx <= end;
+        })
+        : (targetLineIdx >= sourceBlock.startLine && targetLineIdx <= sourceBlock.endLine + 1);
     if (!inSelfRange) {
         return { inSelfRange: false, allowInPlaceIndentChange: false };
+    }
+
+    if (hasCompositeSelection) {
+        return {
+            inSelfRange: true,
+            allowInPlaceIndentChange: false,
+            rejectReason: 'self_range_blocked',
+        };
     }
 
     const hasListIntent = listTargetIndentWidthOverride !== undefined || listIndentDeltaOverride !== undefined;

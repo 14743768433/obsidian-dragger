@@ -118,4 +118,98 @@ describe('BlockMover', () => {
 
         expect(dispatch).not.toHaveBeenCalled();
     });
+
+    it('moves composite multi-range source as ordered group', () => {
+        const state = EditorState.create({ doc: 'a\nb\nc\nd\ne\nf' });
+        const dispatch = vi.fn();
+        const view = { state, dispatch } as unknown as EditorView;
+        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
+        const mover = new BlockMover({
+            view,
+            clampTargetLineNumber: (_total, lineNumber) => lineNumber,
+            getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
+            resolveDropRuleAtInsertion: () => ({
+                slotContext: 'outside',
+                decision: { allowDrop: true },
+            }),
+            parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
+            getListContext: () => null,
+            getIndentUnitWidth: () => 2,
+            buildInsertText: (_doc, _sourceBlock, _targetLineNumber, sourceContent) => `${sourceContent}\n`,
+        });
+
+        const line2 = state.doc.line(2);
+        const line5 = state.doc.line(5);
+        mover.moveBlock({
+            sourceBlock: {
+                type: BlockType.Paragraph,
+                startLine: 1,
+                endLine: 4,
+                from: line2.from,
+                to: line5.to,
+                indentLevel: 0,
+                content: 'b\ne',
+                compositeSelection: {
+                    ranges: [
+                        { startLine: 1, endLine: 1 },
+                        { startLine: 4, endLine: 4 },
+                    ],
+                },
+            },
+            targetPos: state.doc.line(1).from,
+            targetLineNumberOverride: 1,
+        });
+
+        expect(dispatch).toHaveBeenCalledTimes(1);
+        const payload = dispatch.mock.calls[0][0];
+        expect(Array.isArray(payload.changes)).toBe(true);
+        expect(payload.changes).toHaveLength(3);
+        const insertChange = payload.changes.find((change: any) => typeof change.insert === 'string');
+        expect(insertChange?.insert).toContain('b');
+        expect(insertChange?.insert).toContain('e');
+        setTimeoutSpy.mockRestore();
+    });
+
+    it('allows composite move into unselected gap between selected ranges', () => {
+        const state = EditorState.create({ doc: 'a\nb\nc\nd\ne\nf' });
+        const dispatch = vi.fn();
+        const view = { state, dispatch } as unknown as EditorView;
+        const mover = new BlockMover({
+            view,
+            clampTargetLineNumber: (_total, lineNumber) => lineNumber,
+            getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
+            resolveDropRuleAtInsertion: () => ({
+                slotContext: 'outside',
+                decision: { allowDrop: true },
+            }),
+            parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
+            getListContext: () => null,
+            getIndentUnitWidth: () => 2,
+            buildInsertText: (_doc, _sourceBlock, _targetLineNumber, sourceContent) => `${sourceContent}\n`,
+        });
+
+        const line2 = state.doc.line(2);
+        const line5 = state.doc.line(5);
+        mover.moveBlock({
+            sourceBlock: {
+                type: BlockType.Paragraph,
+                startLine: 1,
+                endLine: 4,
+                from: line2.from,
+                to: line5.to,
+                indentLevel: 0,
+                content: 'b\ne',
+                compositeSelection: {
+                    ranges: [
+                        { startLine: 1, endLine: 1 },
+                        { startLine: 4, endLine: 4 },
+                    ],
+                },
+            },
+            targetPos: state.doc.line(3).from,
+            targetLineNumberOverride: 3,
+        });
+
+        expect(dispatch).toHaveBeenCalledTimes(1);
+    });
 });

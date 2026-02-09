@@ -56,10 +56,50 @@
 
 /* Horizontal rule lines sometimes render a wide overlay that can swallow handle hit-testing. */
 .dnd-line-number-hover-hidden,
+.dnd-line-number-grab-hidden,
 .dnd-drag-source-line-number {
     color: transparent !important;
     opacity: 0 !important;
     text-shadow: none !important;
+}
+
+.dnd-drag-handle.dnd-range-selected-handle {
+    opacity: 1 !important;
+    cursor: grab;
+    color: var(--dnd-handle-color-hover, var(--dnd-handle-color, var(--interactive-accent)));
+    filter: brightness(1.08);
+}
+
+.dnd-drag-handle.dnd-range-selected-handle .dnd-handle-core {
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.2),
+        0 0 10px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 45%, transparent);
+}
+
+.markdown-source-view.mod-cm6 .cm-editor.dnd-root-editor .cm-content.dnd-main-content > .cm-line.dnd-range-selected-line {
+    background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+    border-radius: 4px;
+}
+
+.dnd-range-selection-link {
+    position: absolute;
+    width: 5px;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    background-clip: content-box;
+    transform: translateX(-50%);
+    border-radius: 999px;
+    background: var(--dnd-handle-color, var(--interactive-accent));
+    box-shadow: 0 0 8px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 40%, transparent);
+    will-change: left, top, height, opacity;
+    transition:
+        left 45ms linear,
+        top 45ms linear,
+        height 45ms linear,
+        opacity 36ms linear;
+    pointer-events: none;
+    cursor: grab;
+    z-index: 10002;
 }
 
 /* 常态显示拖拽手柄 */

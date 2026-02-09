@@ -59,6 +59,12 @@ export class BlockMover {
             listTargetIndentWidthOverride,
         } = params;
 
+        const compositeRanges = sourceBlock.compositeSelection?.ranges ?? [];
+        if (compositeRanges.length > 1) {
+            this.moveCompositeBlock(params);
+            return;
+        }
+
         const view = this.deps.view;
         const doc = view.state.doc as unknown as DocLikeWithRange;
         const targetLine = view.state.doc.lineAt(targetPos);
@@ -142,5 +148,129 @@ export class BlockMover {
             this.listRenumberer.renumberOrderedListAround(sourceLineNumber);
             this.listRenumberer.renumberOrderedListAround(targetLineNumber);
         }, 0);
+    }
+
+    private moveCompositeBlock(params: {
+        sourceBlock: BlockInfo;
+        targetPos: number;
+        targetLineNumberOverride?: number;
+        listContextLineNumberOverride?: number;
+        listIndentDeltaOverride?: number;
+        listTargetIndentWidthOverride?: number;
+    }): void {
+        const { sourceBlock, targetPos, targetLineNumberOverride } = params;
+        const view = this.deps.view;
+        const doc = view.state.doc as unknown as DocLikeWithRange;
+        const normalizedRanges = this.normalizeCompositeRanges(
+            sourceBlock.compositeSelection?.ranges ?? [],
+            doc.lines
+        );
+        if (normalizedRanges.length <= 1) {
+            return;
+        }
+
+        const targetLine = view.state.doc.lineAt(targetPos);
+        let targetLineNumber = targetLineNumberOverride ?? targetLine.number;
+        if (targetLineNumberOverride === undefined) {
+            const adjusted = this.deps.getAdjustedTargetLocation(targetLine.number);
+            if (adjusted.blockAdjusted) {
+                targetLineNumber = adjusted.lineNumber;
+            }
+        }
+        targetLineNumber = this.deps.clampTargetLineNumber(doc.lines, targetLineNumber);
+
+        const lineMap = getLineMap(view.state as any);
+        const containerRule = this.deps.resolveDropRuleAtInsertion(
+            sourceBlock,
+            targetLineNumber,
+            { lineMap }
+        );
+        if (!containerRule.decision.allowDrop) {
+            return;
+        }
+        if (this.isTargetInsideCompositeRanges(targetLineNumber, normalizedRanges)) {
+            return;
+        }
+
+        const segments = normalizedRanges.map((range) => {
+            const startLine = doc.line(range.startLine + 1);
+            const endLine = doc.line(range.endLine + 1);
+            const from = startLine.from;
+            const to = Math.min(endLine.to + 1, doc.length);
+            return {
+                from,
+                to,
+                startLineNumber: range.startLine + 1,
+            };
+        });
+
+        const insertText = segments
+            .map((segment) => doc.sliceString(segment.from, segment.to))
+            .join('');
+        if (!insertText.length) return;
+
+        const insertPos = targetLineNumber > doc.lines
+            ? doc.length
+            : doc.line(targetLineNumber).from;
+        if (segments.some((segment) => insertPos > segment.from && insertPos < segment.to)) {
+            return;
+        }
+
+        const changes = [
+            { from: insertPos, to: insertPos, insert: insertText },
+            ...segments.map((segment) => ({ from: segment.from, to: segment.to })),
+        ].sort((a, b) => b.from - a.from);
+
+        view.dispatch({
+            changes,
+            scrollIntoView: false,
+        });
+
+        const renumberTargets = new Set<number>([targetLineNumber]);
+        for (const segment of segments) {
+            renumberTargets.add(segment.startLineNumber);
+        }
+        setTimeout(() => {
+            for (const lineNumber of renumberTargets) {
+                this.listRenumberer.renumberOrderedListAround(lineNumber);
+            }
+        }, 0);
+    }
+
+    private normalizeCompositeRanges(
+        ranges: Array<{ startLine: number; endLine: number }>,
+        totalLines: number
+    ): Array<{ startLine: number; endLine: number }> {
+        const normalized = ranges
+            .map((range) => {
+                const startLine = Math.max(0, Math.min(totalLines - 1, Math.min(range.startLine, range.endLine)));
+                const endLine = Math.max(0, Math.min(totalLines - 1, Math.max(range.startLine, range.endLine)));
+                return { startLine, endLine };
+            })
+            .sort((a, b) => a.startLine - b.startLine);
+
+        const merged: Array<{ startLine: number; endLine: number }> = [];
+        for (const range of normalized) {
+            const last = merged[merged.length - 1];
+            if (!last || range.startLine > last.endLine + 1) {
+                merged.push(range);
+            } else if (range.endLine > last.endLine) {
+                last.endLine = range.endLine;
+            }
+        }
+        return merged;
+    }
+
+    private isTargetInsideCompositeRanges(
+        targetLineNumber: number,
+        ranges: Array<{ startLine: number; endLine: number }>
+    ): boolean {
+        const targetLine0 = targetLineNumber - 1;
+        for (const range of ranges) {
+            if (targetLine0 >= range.startLine && targetLine0 <= range.endLine) {
+                return true;
+            }
+        }
+        return false;
     }
 }

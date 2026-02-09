@@ -70,4 +70,38 @@ describe('drop-validation', () => {
 
         expect(withMap).toEqual(withoutMap);
     });
+
+    it('treats disjoint composite selection gaps as valid drop targets', () => {
+        const sourceBlock: BlockInfo = {
+            ...createBlock(BlockType.ListItem, 1, 6, '- a\n- z'),
+            compositeSelection: {
+                ranges: [
+                    { startLine: 1, endLine: 1 },
+                    { startLine: 6, endLine: 6 },
+                ],
+            },
+        };
+
+        const inGap = validateInPlaceDrop({
+            doc: createDoc(['0', 'a', 'b', 'c', 'd', 'e', 'z', 'tail']),
+            sourceBlock,
+            targetLineNumber: 4,
+            parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
+            getListContext: () => null,
+            getIndentUnitWidth: () => 2,
+        });
+        expect(inGap.inSelfRange).toBe(false);
+        expect(inGap.allowInPlaceIndentChange).toBe(false);
+
+        const inSelectedRange = validateInPlaceDrop({
+            doc: createDoc(['0', 'a', 'b', 'c', 'd', 'e', 'z', 'tail']),
+            sourceBlock,
+            targetLineNumber: 2,
+            parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
+            getListContext: () => null,
+            getIndentUnitWidth: () => 2,
+        });
+        expect(inSelectedRange.inSelfRange).toBe(true);
+        expect(inSelectedRange.rejectReason).toBe('self_range_blocked');
+    });
 });

@@ -6,20 +6,22 @@ export class DragSourceResolver {
     constructor(private readonly view: EditorView) { }
 
     getBlockInfoForHandle(handle: HTMLElement): BlockInfo | null {
+        try {
+            const pos = this.view.posAtDOM(handle);
+            const lineNumber = this.view.state.doc.lineAt(pos).number;
+            const block = this.getDraggableBlockAtLine(lineNumber);
+            if (block) return block;
+        } catch {
+            // fall through to attribute-based fallback
+        }
+
         const startAttr = handle.getAttribute('data-block-start');
         const startLine = startAttr !== null ? Number(startAttr) + 1 : NaN;
         if (Number.isInteger(startLine) && startLine >= 1 && startLine <= this.view.state.doc.lines) {
             const block = this.getDraggableBlockAtLine(startLine);
             if (block) return block;
         }
-
-        try {
-            const pos = this.view.posAtDOM(handle);
-            const lineNumber = this.view.state.doc.lineAt(pos).number;
-            return this.getDraggableBlockAtLine(lineNumber);
-        } catch {
-            return null;
-        }
+        return null;
     }
 
     getDraggableBlockAtLine(lineNumber: number): BlockInfo | null {

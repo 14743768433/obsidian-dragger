@@ -459,6 +459,9 @@ export class DropTargetCalculator {
         if (!dragSource) {
             return `${clientX}|${clientY}|none|${pointerType ?? ''}`;
         }
+        const compositeKey = (dragSource.compositeSelection?.ranges ?? [])
+            .map((range) => `${range.startLine}-${range.endLine}`)
+            .join(',');
         return [
             clientX,
             clientY,
@@ -468,6 +471,7 @@ export class DropTargetCalculator {
             dragSource.endLine,
             dragSource.from,
             dragSource.to,
+            compositeKey,
         ].join('|');
     }
 
