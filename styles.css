@@ -83,9 +83,9 @@
 
 .dnd-range-selection-link {
     position: absolute;
-    width: 5px;
-    border-left: 6px solid transparent;
-    border-right: 6px solid transparent;
+    width: 4px;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
     background-clip: content-box;
     transform: translateX(-50%);
     border-radius: 999px;
