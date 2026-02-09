@@ -83,13 +83,10 @@
 
 .dnd-range-selection-link {
     position: absolute;
-    width: 4px;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
+    width: 2px;
     transform: translateX(-50%);
     border-radius: 999px;
     background-color: var(--dnd-handle-color, var(--interactive-accent));
-    background-clip: content-box;
     box-shadow: 0 0 6px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 36%, transparent);
     will-change: left, top, height, opacity;
     transition:
