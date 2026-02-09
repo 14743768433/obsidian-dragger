@@ -45,14 +45,14 @@ import { LineHandleManager } from './managers/LineHandleManager';
 import { EmbedHandleManager } from './managers/EmbedHandleManager';
 import { getLineNumberElementForLine, hasVisibleLineNumberGutter } from './core/handle-position';
 import { clampNumber, clampTargetLineNumber } from './utils/coordinate-utils';
-
-const HOVER_HIDDEN_LINE_NUMBER_CLASS = 'dnd-line-number-hover-hidden';
-const GRAB_HIDDEN_LINE_NUMBER_CLASS = 'dnd-line-number-grab-hidden';
-const DOC_SEMANTIC_IDLE_SMALL_MS = 500;
-const DOC_SEMANTIC_IDLE_MEDIUM_MS = 900;
-const DOC_SEMANTIC_IDLE_LARGE_MS = 1400;
-const HANDLE_INTERACTION_ZONE_PX = 64;
-const SCROLL_VIEWPORT_REFRESH_DEBOUNCE_MS = 80;
+import {
+    DOC_SEMANTIC_IDLE_SMALL_MS,
+    DOC_SEMANTIC_IDLE_MEDIUM_MS,
+    DOC_SEMANTIC_IDLE_LARGE_MS,
+    HANDLE_INTERACTION_ZONE_PX,
+    HOVER_HIDDEN_LINE_NUMBER_CLASS,
+    GRAB_HIDDEN_LINE_NUMBER_CLASS,
+} from './core/constants';
 
 /**
  * 创建拖拽手柄ViewPlugin

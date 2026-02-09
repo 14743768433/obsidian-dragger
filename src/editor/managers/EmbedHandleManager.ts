@@ -2,15 +2,18 @@ import { EditorView } from '@codemirror/view';
 import { BlockInfo } from '../../types';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 import { getHandleColumnLeftPx, getHandleLeftPxForLine, getHandleTopPxForLine } from '../core/handle-position';
+import {
+    HANDLE_SIZE_PX,
+    EMBED_SCAN_DEBOUNCE_SMALL_MS,
+    EMBED_SCAN_DEBOUNCE_MEDIUM_MS,
+    EMBED_SCAN_DEBOUNCE_LARGE_MS,
+} from '../core/constants';
 
 type EmbedHandleEntry = {
     handle: HTMLElement;
 };
 
-const HANDLE_SIZE_PX = 16;
-const EMBED_SCAN_DEBOUNCE_SMALL_MS = 120;
-const EMBED_SCAN_DEBOUNCE_MEDIUM_MS = 300;
-const EMBED_SCAN_DEBOUNCE_LARGE_MS = 700;
+
 
 export interface EmbedHandleManagerDeps {
     createHandleElement: (getBlockInfo: () => BlockInfo | null) => HTMLElement;
