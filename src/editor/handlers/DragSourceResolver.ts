@@ -6,7 +6,17 @@ export class DragSourceResolver {
     constructor(private readonly view: EditorView) { }
 
     getBlockInfoForHandle(handle: HTMLElement): BlockInfo | null {
-        // First, try attribute-based resolution which is more reliable after scrolling
+        // First, try DOM position for most accurate resolution
+        try {
+            const pos = this.view.posAtDOM(handle);
+            const lineNumber = this.view.state.doc.lineAt(pos).number;
+            const block = this.getDraggableBlockAtLine(lineNumber);
+            if (block) return block;
+        } catch {
+            // DOM lookup failed, fall through to attribute-based resolution
+        }
+
+        // Fallback to attribute-based resolution when DOM lookup fails (e.g., after scrolling)
         const startAttr = handle.getAttribute('data-block-start');
         const startLine = startAttr !== null ? Number(startAttr) + 1 : NaN;
         if (Number.isInteger(startLine) && startLine >= 1 && startLine <= this.view.state.doc.lines) {
@@ -14,15 +24,6 @@ export class DragSourceResolver {
             if (block) return block;
         }
 
-        // Fallback to DOM position if attribute is missing or invalid
-        try {
-            const pos = this.view.posAtDOM(handle);
-            const lineNumber = this.view.state.doc.lineAt(pos).number;
-            const block = this.getDraggableBlockAtLine(lineNumber);
-            if (block) return block;
-        } catch {
-            // DOM lookup failed, no further fallback
-        }
         return null;
     }
 
