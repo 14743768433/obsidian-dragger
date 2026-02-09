@@ -6,20 +6,22 @@ export class DragSourceResolver {
     constructor(private readonly view: EditorView) { }
 
     getBlockInfoForHandle(handle: HTMLElement): BlockInfo | null {
+        // First, try attribute-based resolution which is more reliable after scrolling
+        const startAttr = handle.getAttribute('data-block-start');
+        const startLine = startAttr !== null ? Number(startAttr) + 1 : NaN;
+        if (Number.isInteger(startLine) && startLine >= 1 && startLine <= this.view.state.doc.lines) {
+            const block = this.getDraggableBlockAtLine(startLine);
+            if (block) return block;
+        }
+
+        // Fallback to DOM position if attribute is missing or invalid
         try {
             const pos = this.view.posAtDOM(handle);
             const lineNumber = this.view.state.doc.lineAt(pos).number;
             const block = this.getDraggableBlockAtLine(lineNumber);
             if (block) return block;
         } catch {
-            // fall through to attribute-based fallback
-        }
-
-        const startAttr = handle.getAttribute('data-block-start');
-        const startLine = startAttr !== null ? Number(startAttr) + 1 : NaN;
-        if (Number.isInteger(startLine) && startLine >= 1 && startLine <= this.view.state.doc.lines) {
-            const block = this.getDraggableBlockAtLine(startLine);
-            if (block) return block;
+            // DOM lookup failed, no further fallback
         }
         return null;
     }
@@ -35,7 +37,12 @@ export class DragSourceResolver {
         if (clientY < contentRect.top || clientY > contentRect.bottom) return null;
 
         const x = Math.min(Math.max(clientX, contentRect.left + 2), contentRect.right - 2);
-        const pos = this.view.posAtCoords({ x, y: clientY });
+        let pos: number | null = null;
+        try {
+            pos = this.view.posAtCoords({ x, y: clientY });
+        } catch {
+            return null;
+        }
         if (pos === null) return null;
 
         const lineNumber = this.view.state.doc.lineAt(pos).number;

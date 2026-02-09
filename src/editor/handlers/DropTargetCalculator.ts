@@ -364,7 +364,12 @@ export class DropTargetCalculator {
     } | null {
         const contentRect = this.view.contentDOM.getBoundingClientRect();
         const x = this.deps.clampNumber(info.clientX, contentRect.left + 2, contentRect.right - 2);
-        const pos = this.view.posAtCoords({ x, y: info.clientY });
+        let pos: number | null = null;
+        try {
+            pos = this.view.posAtCoords({ x, y: info.clientY });
+        } catch {
+            return null;
+        }
         if (pos === null) return null;
 
         const line = this.view.state.doc.lineAt(pos);

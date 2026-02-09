@@ -24,7 +24,7 @@ import {
     primeLineMapFromTransition,
     setLineMapPerfRecorder,
 } from './core/line-map';
-import { setDetectBlockPerfRecorder } from './block-detector';
+import { setDetectBlockPerfRecorder, prewarmFenceScan } from './block-detector';
 import { BlockMover } from './movers/BlockMover';
 import { DropIndicatorManager } from './managers/DropIndicatorManager';
 import { DropTargetCalculator } from './handlers/DropTargetCalculator';
@@ -41,7 +41,7 @@ import {
     startDragFromHandle,
 } from './handlers/DragTransfer';
 import { createDragHandleElement } from './core/handle-dom';
-import { DecorationManager } from './managers/DecorationManager';
+import { LineHandleManager } from './managers/LineHandleManager';
 import { EmbedHandleManager } from './managers/EmbedHandleManager';
 import { getLineNumberElementForLine, hasVisibleLineNumberGutter } from './core/handle-position';
 import { clampNumber, clampTargetLineNumber } from './utils/coordinate-utils';
@@ -60,7 +60,7 @@ const SCROLL_VIEWPORT_REFRESH_DEBOUNCE_MS = 80;
 function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
     return ViewPlugin.fromClass(
         class {
-            decorations: DecorationSet;
+            // decorations removed - now using LineHandleManager with independent DOM elements
             view: EditorView;
             dropIndicator: DropIndicatorManager;
             blockMover: BlockMover;
@@ -69,7 +69,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             geometryCalculator: GeometryCalculator;
             containerPolicyService: ContainerPolicyService;
             textMutationPolicy: TextMutationPolicy;
-            decorationManager: DecorationManager;
+            lineHandleManager: LineHandleManager;
             embedHandleManager: EmbedHandleManager;
             dragEventHandler: DragEventHandler;
             dragSourceResolver: DragSourceResolver;
@@ -149,21 +149,21 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         dragSource: info.dragSource ?? getActiveDragSourceBlock(this.view) ?? null,
                         pointerType: info.pointerType ?? null,
                     })
-                , {
-                    recordPerfDuration: (key, durationMs) => {
-                        this.dragPerfSession?.recordDuration(key, durationMs);
-                    },
-                    onFrameMetrics: (metrics) => {
-                        if (!this.dragPerfSession) return;
-                        this.dragPerfSession.incrementCounter('drop_indicator_frames');
-                        if (metrics.skipped) {
-                            this.dragPerfSession.incrementCounter('drop_indicator_skipped_frames');
-                        }
-                        if (metrics.reused) {
-                            this.dragPerfSession.incrementCounter('drop_indicator_reused_frames');
-                        }
-                    },
-                }
+                    , {
+                        recordPerfDuration: (key, durationMs) => {
+                            this.dragPerfSession?.recordDuration(key, durationMs);
+                        },
+                        onFrameMetrics: (metrics) => {
+                            if (!this.dragPerfSession) return;
+                            this.dragPerfSession.incrementCounter('drop_indicator_frames');
+                            if (metrics.skipped) {
+                                this.dragPerfSession.incrementCounter('drop_indicator_skipped_frames');
+                            }
+                            if (metrics.reused) {
+                                this.dragPerfSession.incrementCounter('drop_indicator_reused_frames');
+                            }
+                        },
+                    }
                 );
                 this.blockMover = new BlockMover({
                     view: this.view,
@@ -176,11 +176,10 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     getIndentUnitWidth: this.textMutationPolicy.getIndentUnitWidth.bind(this.textMutationPolicy),
                     buildInsertText: this.textMutationPolicy.buildInsertText.bind(this.textMutationPolicy),
                 });
-                this.decorationManager = new DecorationManager({
-                    view: this.view,
+                this.lineHandleManager = new LineHandleManager(this.view, {
                     createHandleElement: this.createHandleElement.bind(this),
                     getDraggableBlockAtLine: (lineNumber) => this.dragSourceResolver.getDraggableBlockAtLine(lineNumber),
-                    shouldRenderInlineHandles: () => true,
+                    shouldRenderLineHandles: () => true,
                 });
                 this.embedHandleManager = new EmbedHandleManager(this.view, {
                     createHandleElement: this.createHandleElement.bind(this),
@@ -223,25 +222,48 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     onDragLifecycleEvent: (event) => this.emitDragLifecycle(event),
                 });
 
-                this.decorations = this.decorationManager.buildDecorations();
+                this.lineHandleManager.start();
                 this.dragEventHandler.attach();
                 this.embedHandleManager.start();
                 this.bindViewportScrollFallback();
                 document.addEventListener('pointermove', this.onDocumentPointerMove, { passive: true });
+
+                // Pre-warm fence scan during idle to ensure code/math block boundaries are ready
+                const warmupFenceScan = () => prewarmFenceScan(view.state.doc);
+                const requestIdle = (window as any).requestIdleCallback as
+                    | ((cb: () => void, options?: { timeout?: number }) => number)
+                    | undefined;
+                if (typeof requestIdle === 'function') {
+                    requestIdle(warmupFenceScan, { timeout: 1000 });
+                } else {
+                    window.setTimeout(warmupFenceScan, 100);
+                }
             }
 
             update(update: ViewUpdate) {
+                // Viewport changes have highest priority - refresh visible decorations immediately
+                if (update.viewportChanged) {
+                    this.refreshDecorationsAndEmbeds();
+                    this.dragEventHandler.refreshSelectionVisual();
+                    // Still schedule line-map prewarm if doc changed
+                    if (update.docChanged) {
+                        this.scheduleLineMapPrewarm(update);
+                    }
+                    if (this.activeVisibleHandle && !this.activeVisibleHandle.isConnected) {
+                        this.setActiveVisibleHandle(null);
+                    }
+                    return;
+                }
+
                 if (update.docChanged) {
-                    // Keep typing path light: remap existing handles and defer semantic refresh.
-                    this.decorations = this.decorations.map(update.changes);
+                    // Mark semantic refresh pending - LineHandleManager will update on refresh
                     this.markSemanticRefreshPending();
                     this.scheduleLineMapPrewarm(update);
-                }
-                const shouldForceRebuild = update.viewportChanged || (update.geometryChanged && !update.docChanged);
-                if (shouldForceRebuild) {
+                } else if (update.geometryChanged) {
                     this.refreshDecorationsAndEmbeds();
                 }
-                if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+
+                if (update.docChanged || update.geometryChanged) {
                     this.dragEventHandler.refreshSelectionVisual();
                 }
                 if (this.activeVisibleHandle && !this.activeVisibleHandle.isConnected) {
@@ -717,7 +739,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
 
             private refreshDecorationsAndEmbeds(): void {
                 this.clearPendingSemanticRefresh();
-                this.decorations = this.decorationManager.buildDecorations();
+                this.lineHandleManager.scheduleScan({ urgent: true });
                 this.embedHandleManager.scheduleScan({ urgent: true });
             }
 
@@ -742,22 +764,16 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             private scheduleViewportRefreshFromScroll(): void {
                 if (document.body.classList.contains('dnd-dragging')) return;
                 if (this.dragEventHandler.isGestureActive()) return;
-                if (this.viewportScrollRefreshTimerHandle !== null) {
-                    window.clearTimeout(this.viewportScrollRefreshTimerHandle);
-                }
-                this.viewportScrollRefreshTimerHandle = window.setTimeout(() => {
-                    this.viewportScrollRefreshTimerHandle = null;
-                    if (this.viewportScrollRefreshRafHandle !== null) {
-                        window.cancelAnimationFrame(this.viewportScrollRefreshRafHandle);
-                    }
-                    this.viewportScrollRefreshRafHandle = window.requestAnimationFrame(() => {
-                        this.viewportScrollRefreshRafHandle = null;
-                        if (document.body.classList.contains('dnd-dragging')) return;
-                        if (this.dragEventHandler.isGestureActive()) return;
-                        this.refreshDecorationsAndEmbeds();
-                        this.dragEventHandler.refreshSelectionVisual();
-                    });
-                }, SCROLL_VIEWPORT_REFRESH_DEBOUNCE_MS);
+                // Skip if already scheduled - avoid redundant RAF calls during fast scrolling
+                if (this.viewportScrollRefreshRafHandle !== null) return;
+
+                this.viewportScrollRefreshRafHandle = window.requestAnimationFrame(() => {
+                    this.viewportScrollRefreshRafHandle = null;
+                    if (document.body.classList.contains('dnd-dragging')) return;
+                    if (this.dragEventHandler.isGestureActive()) return;
+                    this.refreshDecorationsAndEmbeds();
+                    this.dragEventHandler.refreshSelectionVisual();
+                });
             }
 
             private clearScheduledViewportRefreshFromScroll(): void {
@@ -790,7 +806,10 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             }
 
             private ensureSemanticReadyForInteraction(): void {
-                if (!this.pendingSemanticRefresh) return;
+                const hasPendingViewportRefresh = this.viewportScrollRefreshTimerHandle !== null
+                    || this.viewportScrollRefreshRafHandle !== null;
+                if (!this.pendingSemanticRefresh && !hasPendingViewportRefresh) return;
+                this.clearScheduledViewportRefreshFromScroll();
                 this.refreshDecorationsAndEmbeds();
             }
 
@@ -863,19 +882,29 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             }): BlockInfo | null {
                 const allowRefreshRetry = params.allowRefreshRetry !== false;
                 const resolveOnce = (): BlockInfo | null => {
-                    if (Number.isFinite(params.clientX) && Number.isFinite(params.clientY)) {
-                        const fromPoint = this.dragSourceResolver.getDraggableBlockAtPoint(params.clientX, params.clientY);
-                        if (fromPoint) {
-                            this.syncHandleBlockAttributes(params.handle ?? null, fromPoint);
-                            return fromPoint;
-                        }
-                    }
-
                     if (params.handle) {
-                        const fromHandle = this.dragSourceResolver.getBlockInfoForHandle(params.handle);
+                        let fromHandle: BlockInfo | null = null;
+                        try {
+                            fromHandle = this.dragSourceResolver.getBlockInfoForHandle(params.handle);
+                        } catch {
+                            fromHandle = null;
+                        }
                         if (fromHandle) {
                             this.syncHandleBlockAttributes(params.handle, fromHandle);
                             return fromHandle;
+                        }
+                    }
+
+                    if (Number.isFinite(params.clientX) && Number.isFinite(params.clientY)) {
+                        let fromPoint: BlockInfo | null = null;
+                        try {
+                            fromPoint = this.dragSourceResolver.getDraggableBlockAtPoint(params.clientX, params.clientY);
+                        } catch {
+                            fromPoint = null;
+                        }
+                        if (fromPoint) {
+                            this.syncHandleBlockAttributes(params.handle ?? null, fromPoint);
+                            return fromPoint;
                         }
                     }
 
@@ -888,8 +917,23 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
 
                 const first = resolveOnce();
                 if (first || !allowRefreshRetry) return first;
+
+                // Refresh decorations and retry - use coordinates since handle may be stale
                 this.refreshDecorationsAndEmbeds();
-                return resolveOnce();
+
+                if (Number.isFinite(params.clientX) && Number.isFinite(params.clientY)) {
+                    try {
+                        const fromPoint = this.dragSourceResolver.getDraggableBlockAtPoint(params.clientX, params.clientY);
+                        if (fromPoint) {
+                            this.syncHandleBlockAttributes(params.handle ?? null, fromPoint);
+                            return fromPoint;
+                        }
+                    } catch {
+                        // fall through
+                    }
+                }
+
+                return params.fallback?.() ?? null;
             }
 
             private syncHandleBlockAttributes(handle: HTMLElement | null, blockInfo: BlockInfo): void {
@@ -897,10 +941,8 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 handle.setAttribute('data-block-start', String(blockInfo.startLine));
                 handle.setAttribute('data-block-end', String(blockInfo.endLine));
             }
-        },
-        {
-            decorations: (v) => v.decorations,
         }
+        // No decorations config - LineHandleManager uses independent DOM elements
     );
 }
 

@@ -374,25 +374,38 @@ function scanFenceLine(
     lineNumber: number,
     text: string
 ): void {
-    if (isCodeFenceLine(text)) {
-        if (state.openCodeStartLine === 0) {
-            state.openCodeStartLine = lineNumber;
-        } else {
+    // When inside a code block, only look for closing code fence
+    if (state.openCodeStartLine !== 0) {
+        if (isCodeFenceLine(text)) {
             assignFenceRangeByLine(state.codeRangeByLine, state.openCodeStartLine, lineNumber);
             state.openCodeStartLine = 0;
         }
+        // Ignore everything else (including $$) when inside code block
+        return;
+    }
+
+    // When inside a math block, only look for closing math fence
+    if (state.openMathStartLine !== 0) {
+        if (isMathFenceLine(text)) {
+            assignFenceRangeByLine(state.mathRangeByLine, state.openMathStartLine, lineNumber);
+            state.openMathStartLine = 0;
+        }
+        // Ignore everything else when inside math block
+        return;
+    }
+
+    // Not inside any block - check for opening fences
+    // Code fences take priority over math fences
+    if (isCodeFenceLine(text)) {
+        state.openCodeStartLine = lineNumber;
+        return;
     }
 
     if (isMathFenceLine(text)) {
-        if (state.openMathStartLine === 0) {
-            if (isSingleLineMathFence(text)) {
-                assignFenceRangeByLine(state.mathRangeByLine, lineNumber, lineNumber);
-            } else {
-                state.openMathStartLine = lineNumber;
-            }
+        if (isSingleLineMathFence(text)) {
+            assignFenceRangeByLine(state.mathRangeByLine, lineNumber, lineNumber);
         } else {
-            assignFenceRangeByLine(state.mathRangeByLine, state.openMathStartLine, lineNumber);
-            state.openMathStartLine = 0;
+            state.openMathStartLine = lineNumber;
         }
     }
 }
@@ -422,6 +435,14 @@ function ensureFenceScanComplete(doc: Text): FenceLazyScanState {
     state.scannedUntilLine = Math.max(state.scannedUntilLine, cursor - 1);
     finalizeFenceStateAtDocEnd(state);
     return state;
+}
+
+/**
+ * Pre-warm fence scan for a document to ensure code/math block boundaries
+ * are fully computed before interaction. Call this during idle time.
+ */
+export function prewarmFenceScan(doc: Text): void {
+    ensureFenceScanComplete(doc);
 }
 
 function findMathBlockRange(doc: Text, lineNumber: number): FenceRange | null {

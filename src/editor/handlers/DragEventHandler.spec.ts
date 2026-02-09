@@ -751,6 +751,7 @@ describe('DragEventHandler', () => {
 
         scrollOffset = 40;
         view.dom.dispatchEvent(new Event('scroll'));
+        vi.advanceTimersByTime(20);
 
         const topAfter = Number(link?.style.top.replace('px', '') || '0');
         expect(topAfter).toBeLessThan(topBefore);

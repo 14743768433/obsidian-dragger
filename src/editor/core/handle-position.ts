@@ -3,6 +3,14 @@ import { EditorView } from '@codemirror/view';
 const HANDLE_SIZE_PX = 16;
 const GUTTER_FALLBACK_WIDTH_PX = 32;
 
+function safeCoordsAtPos(view: EditorView, pos: number): ReturnType<EditorView['coordsAtPos']> | null {
+    try {
+        return view.coordsAtPos(pos);
+    } catch {
+        return null;
+    }
+}
+
 function isUsableRect(rect: DOMRect | null | undefined): rect is DOMRect {
     if (!rect) return false;
     return rect.width > 0 && rect.height > 0;
@@ -59,7 +67,7 @@ function getClosestLineNumberElementByY(view: EditorView, lineNumber: number): H
     if (!gutter) return null;
 
     const line = view.state.doc.line(lineNumber);
-    const lineCoords = view.coordsAtPos(line.from);
+    const lineCoords = safeCoordsAtPos(view, line.from);
     if (!lineCoords) return null;
     const y = (lineCoords.top + lineCoords.bottom) / 2;
 
@@ -127,7 +135,7 @@ function getHandleCenterForLine(view: EditorView, lineNumber: number): { x: numb
 
     if (lineNumber >= 1 && lineNumber <= view.state.doc.lines) {
         const line = view.state.doc.line(lineNumber);
-        const lineCoords = view.coordsAtPos(line.from);
+        const lineCoords = safeCoordsAtPos(view, line.from);
         if (lineCoords) {
             return {
                 x: getHandleColumnCenterX(view),

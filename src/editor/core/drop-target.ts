@@ -22,12 +22,21 @@ export function getCoordsAtPos(
     frameCache?: GeometryFrameCache
 ): ReturnType<EditorView['coordsAtPos']> | null {
     if (!frameCache) {
-        return view.coordsAtPos(pos);
+        try {
+            return view.coordsAtPos(pos);
+        } catch {
+            return null;
+        }
     }
     if (frameCache.coordsByPos.has(pos)) {
         return frameCache.coordsByPos.get(pos) ?? null;
     }
-    const coords = view.coordsAtPos(pos);
+    let coords: ReturnType<EditorView['coordsAtPos']> | null = null;
+    try {
+        coords = view.coordsAtPos(pos);
+    } catch {
+        coords = null;
+    }
     frameCache.coordsByPos.set(pos, coords);
     return coords;
 }

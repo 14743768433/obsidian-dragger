@@ -86,11 +86,11 @@
     width: 4px;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
-    background-clip: content-box;
     transform: translateX(-50%);
     border-radius: 999px;
-    background: var(--dnd-handle-color, var(--interactive-accent));
-    box-shadow: 0 0 8px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 40%, transparent);
+    background-color: var(--dnd-handle-color, var(--interactive-accent));
+    background-clip: content-box;
+    box-shadow: 0 0 6px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 36%, transparent);
     will-change: left, top, height, opacity;
     transition:
         left 45ms linear,

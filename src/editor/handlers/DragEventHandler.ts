@@ -116,6 +116,7 @@ export class DragEventHandler {
     private readonly rangeSelectionLinkEls: HTMLElement[] = [];
     private committedRangeSelection: CommittedRangeSelection | null = null;
     private rangeSelectionScrollContainer: HTMLElement | null = null;
+    private rangeSelectionVisualRefreshRafHandle: number | null = null;
 
     private readonly onEditorPointerDown = (e: PointerEvent) => {
         const target = e.target as HTMLElement | null;
@@ -224,7 +225,7 @@ export class DragEventHandler {
     private readonly onDocumentVisibilityChange = () => this.handleDocumentVisibilityChange();
     private readonly onDocumentFocusIn = (e: FocusEvent) => this.handleDocumentFocusIn(e);
     private readonly onTouchMove = (e: TouchEvent) => this.handleTouchMove(e);
-    private readonly onRangeSelectionScroll = () => this.refreshRangeSelectionVisual();
+    private readonly onRangeSelectionScroll = () => this.scheduleRangeSelectionVisualRefresh();
 
     constructor(
         private readonly view: EditorView,
@@ -276,6 +277,7 @@ export class DragEventHandler {
             link.remove();
         }
         this.rangeSelectionLinkEls.length = 0;
+        this.cancelScheduledRangeSelectionVisualRefresh();
         this.unbindRangeSelectionScrollListener();
 
         const editorDom = this.view.dom;
@@ -293,7 +295,21 @@ export class DragEventHandler {
     }
 
     refreshSelectionVisual(): void {
-        this.refreshRangeSelectionVisual();
+        this.scheduleRangeSelectionVisualRefresh();
+    }
+
+    private scheduleRangeSelectionVisualRefresh(): void {
+        if (this.rangeSelectionVisualRefreshRafHandle !== null) return;
+        this.rangeSelectionVisualRefreshRafHandle = window.requestAnimationFrame(() => {
+            this.rangeSelectionVisualRefreshRafHandle = null;
+            this.refreshRangeSelectionVisual();
+        });
+    }
+
+    private cancelScheduledRangeSelectionVisualRefresh(): void {
+        if (this.rangeSelectionVisualRefreshRafHandle === null) return;
+        window.cancelAnimationFrame(this.rangeSelectionVisualRefreshRafHandle);
+        this.rangeSelectionVisualRefreshRafHandle = null;
     }
 
     private shouldHandleDrag(e: DragEvent): boolean {
@@ -349,7 +365,12 @@ export class DragEventHandler {
         if (lineNumber < 1 || lineNumber > this.view.state.doc.lines) return false;
 
         const line = this.view.state.doc.line(lineNumber);
-        const lineStart = this.view.coordsAtPos(line.from);
+        let lineStart: ReturnType<EditorView['coordsAtPos']> | null = null;
+        try {
+            lineStart = this.view.coordsAtPos(line.from);
+        } catch {
+            lineStart = null;
+        }
         if (!lineStart) return false;
 
         const contentRect = this.view.contentDOM.getBoundingClientRect();
@@ -838,7 +859,12 @@ export class DragEventHandler {
             contentRect.left + Math.max(12, Math.min(160, contentRect.width / 2)),
         ].map((x) => Math.max(contentRect.left + 2, Math.min(contentRect.right - 2, x)));
         for (const x of probeXs) {
-            const pos = this.view.posAtCoords({ x, y: clientY });
+            let pos: number | null = null;
+            try {
+                pos = this.view.posAtCoords({ x, y: clientY });
+            } catch {
+                pos = null;
+            }
             if (pos !== null) {
                 const lineNumber = doc.lineAt(pos).number;
                 return Math.max(1, Math.min(doc.lines, lineNumber));
@@ -950,7 +976,12 @@ export class DragEventHandler {
                 return domBoundary;
             }
             for (const x of probeXs) {
-                const block = this.deps.getBlockInfoAtPoint(x, y);
+                let block: BlockInfo | null = null;
+                try {
+                    block = this.deps.getBlockInfoAtPoint(x, y);
+                } catch {
+                    block = null;
+                }
                 if (!block) continue;
                 const startLineNumber = Math.max(1, Math.min(doc.lines, block.startLine + 1));
                 const endLineNumber = Math.max(1, Math.min(doc.lines, block.endLine + 1));
