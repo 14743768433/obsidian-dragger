@@ -47,10 +47,12 @@ import { getLineNumberElementForLine, hasVisibleLineNumberGutter } from './core/
 import { clampNumber, clampTargetLineNumber } from './utils/coordinate-utils';
 
 const HOVER_HIDDEN_LINE_NUMBER_CLASS = 'dnd-line-number-hover-hidden';
+const GRAB_HIDDEN_LINE_NUMBER_CLASS = 'dnd-line-number-grab-hidden';
 const DOC_SEMANTIC_IDLE_SMALL_MS = 500;
 const DOC_SEMANTIC_IDLE_MEDIUM_MS = 900;
 const DOC_SEMANTIC_IDLE_LARGE_MS = 1400;
 const HANDLE_INTERACTION_ZONE_PX = 64;
+const SCROLL_VIEWPORT_REFRESH_DEBOUNCE_MS = 80;
 
 /**
  * 创建拖拽手柄ViewPlugin
@@ -73,6 +75,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             dragSourceResolver: DragSourceResolver;
             private hiddenHoveredLineNumberEl: HTMLElement | null = null;
             private currentHoveredLineNumber: number | null = null;
+            private readonly hiddenGrabbedLineNumberEls = new Set<HTMLElement>();
             private activeVisibleHandle: HTMLElement | null = null;
             private lastLifecycleSignature: string | null = null;
             private dragPerfSession: DragPerfSession | null = null;
@@ -86,7 +89,11 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             } | null = null;
             private semanticRefreshTimerHandle: number | null = null;
             private pendingSemanticRefresh = false;
+            private viewportScrollContainer: HTMLElement | null = null;
+            private viewportScrollRefreshTimerHandle: number | null = null;
+            private viewportScrollRefreshRafHandle: number | null = null;
             private readonly onDocumentPointerMove = (e: PointerEvent) => this.handleDocumentPointerMove(e);
+            private readonly onViewportScroll = () => this.scheduleViewportRefreshFromScroll();
 
             constructor(view: EditorView) {
                 this.view = view;
@@ -182,20 +189,28 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 });
                 this.dragEventHandler = new DragEventHandler(this.view, {
                     getDragSourceBlock: (e) => getDragSourceBlockFromEvent(e, this.view),
-                    getBlockInfoForHandle: (handle) => this.dragSourceResolver.getBlockInfoForHandle(handle),
-                    getBlockInfoAtPoint: (clientX, clientY) => this.dragSourceResolver.getDraggableBlockAtPoint(clientX, clientY),
+                    getBlockInfoForHandle: (handle) =>
+                        this.resolveInteractionBlockInfo({
+                            handle,
+                            clientX: Number.NaN,
+                            clientY: Number.NaN,
+                        }),
+                    getBlockInfoAtPoint: (clientX, clientY) =>
+                        this.resolveInteractionBlockInfo({
+                            clientX,
+                            clientY,
+                        }),
                     isBlockInsideRenderedTableCell: (blockInfo) =>
                         isPosInsideRenderedTableCell(this.view, blockInfo.from, { skipLayoutRead: true }),
                     beginPointerDragSession: (blockInfo) => {
                         this.ensureDragPerfSession();
-                        const lineNumber = blockInfo.startLine + 1;
-                        if (lineNumber >= 1 && lineNumber <= this.view.state.doc.lines) {
-                            this.setHoveredLineNumber(lineNumber);
-                        }
-                        this.setActiveVisibleHandle(null, { preserveHoveredLineNumber: true });
+                        const startLineNumber = blockInfo.startLine + 1;
+                        const endLineNumber = blockInfo.endLine + 1;
+                        this.enterGrabVisualState(startLineNumber, endLineNumber, null);
                         beginDragSession(blockInfo, this.view);
                     },
                     finishDragSession: () => {
+                        this.clearGrabbedLineNumbers();
                         this.setActiveVisibleHandle(null);
                         finishDragSession(this.view);
                         this.flushDragPerfSession('finish_drag_session');
@@ -211,6 +226,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.decorations = this.decorationManager.buildDecorations();
                 this.dragEventHandler.attach();
                 this.embedHandleManager.start();
+                this.bindViewportScrollFallback();
                 document.addEventListener('pointermove', this.onDocumentPointerMove, { passive: true });
             }
 
@@ -225,6 +241,9 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 if (shouldForceRebuild) {
                     this.refreshDecorationsAndEmbeds();
                 }
+                if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+                    this.dragEventHandler.refreshSelectionVisual();
+                }
                 if (this.activeVisibleHandle && !this.activeVisibleHandle.isConnected) {
                     this.setActiveVisibleHandle(null);
                 }
@@ -233,9 +252,23 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 const handle = createDragHandleElement({
                     onDragStart: (e, el) => {
                         this.ensureSemanticReadyForInteraction();
-                        this.setActiveVisibleHandle(el);
-                        const sourceBlock = getBlockInfo();
-                        const started = startDragFromHandle(e, this.view, () => sourceBlock ?? getBlockInfo(), el);
+                        const resolveCurrentBlock = () => this.resolveInteractionBlockInfo({
+                            handle,
+                            clientX: e.clientX,
+                            clientY: e.clientY,
+                            fallback: getBlockInfo,
+                        });
+                        const sourceBlock = resolveCurrentBlock();
+                        if (sourceBlock) {
+                            this.enterGrabVisualState(
+                                sourceBlock.startLine + 1,
+                                sourceBlock.endLine + 1,
+                                el
+                            );
+                        } else {
+                            this.setActiveVisibleHandle(el);
+                        }
+                        const started = startDragFromHandle(e, this.view, () => resolveCurrentBlock(), el);
                         if (!started) {
                             this.setActiveVisibleHandle(null);
                             finishDragSession(this.view);
@@ -269,6 +302,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         });
                     },
                     onDragEnd: () => {
+                        this.clearGrabbedLineNumbers();
                         this.setActiveVisibleHandle(null);
                         finishDragSession(this.view);
                         this.flushDragPerfSession('drag_end');
@@ -284,15 +318,23 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 });
                 handle.addEventListener('pointerdown', (e: PointerEvent) => {
                     this.ensureSemanticReadyForInteraction();
-                    const blockInfo = getBlockInfo();
-                    this.setActiveVisibleHandle(handle);
+                    const resolveCurrentBlock = () => this.resolveInteractionBlockInfo({
+                        handle,
+                        clientX: e.clientX,
+                        clientY: e.clientY,
+                        fallback: getBlockInfo,
+                    });
+                    const blockInfo = resolveCurrentBlock();
                     if (blockInfo) {
-                        const lineNumber = blockInfo.startLine + 1;
-                        if (lineNumber >= 1 && lineNumber <= this.view.state.doc.lines) {
-                            this.setHoveredLineNumber(lineNumber);
-                        }
+                        this.enterGrabVisualState(
+                            blockInfo.startLine + 1,
+                            blockInfo.endLine + 1,
+                            handle
+                        );
+                    } else {
+                        this.setActiveVisibleHandle(handle);
                     }
-                    this.dragEventHandler.startPointerDragFromHandle(handle, e, () => blockInfo ?? getBlockInfo());
+                    this.dragEventHandler.startPointerDragFromHandle(handle, e, () => resolveCurrentBlock());
                 });
                 return handle;
             }
@@ -352,7 +394,9 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             destroy(): void {
                 this.clearPendingLineMapPrewarm();
                 this.clearPendingSemanticRefresh();
+                this.unbindViewportScrollFallback();
                 document.removeEventListener('pointermove', this.onDocumentPointerMove);
+                this.clearGrabbedLineNumbers();
                 this.setActiveVisibleHandle(null);
                 finishDragSession(this.view);
                 this.flushDragPerfSession('destroy');
@@ -377,6 +421,10 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 }
                 if (document.body.classList.contains('dnd-dragging')) {
                     this.setActiveVisibleHandle(null, { preserveHoveredLineNumber: true });
+                    return;
+                }
+                if (this.dragEventHandler.isGestureActive()) {
+                    this.setActiveVisibleHandle(this.activeVisibleHandle, { preserveHoveredLineNumber: true });
                     return;
                 }
                 if (this.pendingSemanticRefresh && this.isPointerInHandleInteractionZone(e.clientX, e.clientY)) {
@@ -408,6 +456,28 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 }
                 this.hiddenHoveredLineNumberEl = null;
                 this.currentHoveredLineNumber = null;
+            }
+
+            private clearGrabbedLineNumbers(): void {
+                for (const lineNumberEl of this.hiddenGrabbedLineNumberEls) {
+                    lineNumberEl.classList.remove(GRAB_HIDDEN_LINE_NUMBER_CLASS);
+                }
+                this.hiddenGrabbedLineNumberEls.clear();
+            }
+
+            private setGrabbedLineNumberRange(startLineNumber: number, endLineNumber: number): void {
+                this.clearGrabbedLineNumbers();
+                if (!hasVisibleLineNumberGutter(this.view)) return;
+                const safeStart = Math.max(1, Math.min(this.view.state.doc.lines, startLineNumber));
+                const safeEnd = Math.max(1, Math.min(this.view.state.doc.lines, endLineNumber));
+                const from = Math.min(safeStart, safeEnd);
+                const to = Math.max(safeStart, safeEnd);
+                for (let lineNumber = from; lineNumber <= to; lineNumber++) {
+                    const lineNumberEl = getLineNumberElementForLine(this.view, lineNumber);
+                    if (!lineNumberEl) continue;
+                    lineNumberEl.classList.add(GRAB_HIDDEN_LINE_NUMBER_CLASS);
+                    this.hiddenGrabbedLineNumberEls.add(lineNumberEl);
+                }
             }
 
             private setHoveredLineNumber(lineNumber: number): void {
@@ -449,12 +519,45 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 }
 
                 handle.classList.add('is-visible');
-                const lineNumber = this.resolveHandleLineNumber(handle);
-                if (!lineNumber) {
-                    this.clearHoveredLineNumber();
-                    return;
+                if (!preserveHoveredLineNumber) {
+                    const lineNumber = this.resolveHandleLineNumber(handle);
+                    if (!lineNumber) {
+                        this.clearHoveredLineNumber();
+                        return;
+                    }
+                    this.setHoveredLineNumber(lineNumber);
                 }
-                this.setHoveredLineNumber(lineNumber);
+            }
+
+            private enterGrabVisualState(
+                startLineNumber: number,
+                endLineNumber: number,
+                handle: HTMLElement | null
+            ): void {
+                this.setActiveVisibleHandle(
+                    handle,
+                    { preserveHoveredLineNumber: true }
+                );
+                this.clearHoveredLineNumber();
+                this.setGrabbedLineNumberRange(startLineNumber, endLineNumber);
+            }
+
+            private resolveHandleLineNumber(handle: HTMLElement): number | null {
+                const startAttr = handle.getAttribute('data-block-start');
+                if (startAttr !== null) {
+                    const lineNumber = Number(startAttr) + 1;
+                    if (Number.isInteger(lineNumber) && lineNumber >= 1 && lineNumber <= this.view.state.doc.lines) {
+                        return lineNumber;
+                    }
+                }
+
+                const blockInfo = this.dragSourceResolver.getBlockInfoForHandle(handle);
+                if (!blockInfo) return null;
+                const lineNumber = blockInfo.startLine + 1;
+                if (!Number.isInteger(lineNumber) || lineNumber < 1 || lineNumber > this.view.state.doc.lines) {
+                    return null;
+                }
+                return lineNumber;
             }
 
             private buildListIntent(raw: {
@@ -618,6 +721,56 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.embedHandleManager.scheduleScan({ urgent: true });
             }
 
+            private bindViewportScrollFallback(): void {
+                this.unbindViewportScrollFallback();
+                const scroller = ((this.view as any).scrollDOM as HTMLElement | undefined)
+                    ?? (this.view.dom.querySelector('.cm-scroller') as HTMLElement | null)
+                    ?? null;
+                if (!scroller) return;
+                scroller.addEventListener('scroll', this.onViewportScroll, { passive: true });
+                this.viewportScrollContainer = scroller;
+            }
+
+            private unbindViewportScrollFallback(): void {
+                if (this.viewportScrollContainer) {
+                    this.viewportScrollContainer.removeEventListener('scroll', this.onViewportScroll);
+                    this.viewportScrollContainer = null;
+                }
+                this.clearScheduledViewportRefreshFromScroll();
+            }
+
+            private scheduleViewportRefreshFromScroll(): void {
+                if (document.body.classList.contains('dnd-dragging')) return;
+                if (this.dragEventHandler.isGestureActive()) return;
+                if (this.viewportScrollRefreshTimerHandle !== null) {
+                    window.clearTimeout(this.viewportScrollRefreshTimerHandle);
+                }
+                this.viewportScrollRefreshTimerHandle = window.setTimeout(() => {
+                    this.viewportScrollRefreshTimerHandle = null;
+                    if (this.viewportScrollRefreshRafHandle !== null) {
+                        window.cancelAnimationFrame(this.viewportScrollRefreshRafHandle);
+                    }
+                    this.viewportScrollRefreshRafHandle = window.requestAnimationFrame(() => {
+                        this.viewportScrollRefreshRafHandle = null;
+                        if (document.body.classList.contains('dnd-dragging')) return;
+                        if (this.dragEventHandler.isGestureActive()) return;
+                        this.refreshDecorationsAndEmbeds();
+                        this.dragEventHandler.refreshSelectionVisual();
+                    });
+                }, SCROLL_VIEWPORT_REFRESH_DEBOUNCE_MS);
+            }
+
+            private clearScheduledViewportRefreshFromScroll(): void {
+                if (this.viewportScrollRefreshTimerHandle !== null) {
+                    window.clearTimeout(this.viewportScrollRefreshTimerHandle);
+                    this.viewportScrollRefreshTimerHandle = null;
+                }
+                if (this.viewportScrollRefreshRafHandle !== null) {
+                    window.cancelAnimationFrame(this.viewportScrollRefreshRafHandle);
+                    this.viewportScrollRefreshRafHandle = null;
+                }
+            }
+
             private markSemanticRefreshPending(): void {
                 this.pendingSemanticRefresh = true;
                 if (this.semanticRefreshTimerHandle !== null) {
@@ -701,22 +854,48 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 return candidates.find((handle) => this.embedHandleManager.isManagedHandle(handle)) ?? null;
             }
 
-            private resolveHandleLineNumber(handle: HTMLElement): number | null {
-                const startAttr = handle.getAttribute('data-block-start');
-                if (startAttr !== null) {
-                    const lineNumber = Number(startAttr) + 1;
-                    if (Number.isInteger(lineNumber) && lineNumber >= 1 && lineNumber <= this.view.state.doc.lines) {
-                        return lineNumber;
+            private resolveInteractionBlockInfo(params: {
+                handle?: HTMLElement | null;
+                clientX: number;
+                clientY: number;
+                fallback?: () => BlockInfo | null;
+                allowRefreshRetry?: boolean;
+            }): BlockInfo | null {
+                const allowRefreshRetry = params.allowRefreshRetry !== false;
+                const resolveOnce = (): BlockInfo | null => {
+                    if (Number.isFinite(params.clientX) && Number.isFinite(params.clientY)) {
+                        const fromPoint = this.dragSourceResolver.getDraggableBlockAtPoint(params.clientX, params.clientY);
+                        if (fromPoint) {
+                            this.syncHandleBlockAttributes(params.handle ?? null, fromPoint);
+                            return fromPoint;
+                        }
                     }
-                }
 
-                const blockInfo = this.dragSourceResolver.getBlockInfoForHandle(handle);
-                if (!blockInfo) return null;
-                const lineNumber = blockInfo.startLine + 1;
-                if (!Number.isInteger(lineNumber) || lineNumber < 1 || lineNumber > this.view.state.doc.lines) {
-                    return null;
-                }
-                return lineNumber;
+                    if (params.handle) {
+                        const fromHandle = this.dragSourceResolver.getBlockInfoForHandle(params.handle);
+                        if (fromHandle) {
+                            this.syncHandleBlockAttributes(params.handle, fromHandle);
+                            return fromHandle;
+                        }
+                    }
+
+                    const fromFallback = params.fallback?.() ?? null;
+                    if (fromFallback) {
+                        this.syncHandleBlockAttributes(params.handle ?? null, fromFallback);
+                    }
+                    return fromFallback;
+                };
+
+                const first = resolveOnce();
+                if (first || !allowRefreshRetry) return first;
+                this.refreshDecorationsAndEmbeds();
+                return resolveOnce();
+            }
+
+            private syncHandleBlockAttributes(handle: HTMLElement | null, blockInfo: BlockInfo): void {
+                if (!handle || !handle.isConnected) return;
+                handle.setAttribute('data-block-start', String(blockInfo.startLine));
+                handle.setAttribute('data-block-end', String(blockInfo.endLine));
             }
         },
         {

@@ -408,46 +408,31 @@ function finalizeFenceStateAtDocEnd(state: FenceLazyScanState): void {
     state.fullyScanned = true;
 }
 
-function ensureFenceScanCoverage(doc: Text, targetLine: number): FenceLazyScanState {
+function ensureFenceScanComplete(doc: Text): FenceLazyScanState {
     const state = getFenceLazyScanState(doc);
     if (state.fullyScanned) return state;
 
+    // Build fence ranges against the whole document once per doc snapshot.
+    // This avoids partial-range drift when users jump rapidly across long files.
     let cursor = state.scannedUntilLine + 1;
-    const boundedTarget = Math.max(1, Math.min(doc.lines, targetLine));
-    while (cursor <= doc.lines && cursor <= boundedTarget) {
+    while (cursor <= doc.lines) {
         scanFenceLine(state, cursor, doc.line(cursor).text);
         cursor++;
     }
     state.scannedUntilLine = Math.max(state.scannedUntilLine, cursor - 1);
-
-    const needResolveOpenCode = state.openCodeStartLine !== 0 && boundedTarget >= state.openCodeStartLine;
-    const needResolveOpenMath = state.openMathStartLine !== 0 && boundedTarget >= state.openMathStartLine;
-    if (needResolveOpenCode || needResolveOpenMath) {
-        while (cursor <= doc.lines) {
-            scanFenceLine(state, cursor, doc.line(cursor).text);
-            cursor++;
-            const codeResolved = !needResolveOpenCode || state.openCodeStartLine === 0;
-            const mathResolved = !needResolveOpenMath || state.openMathStartLine === 0;
-            if (codeResolved && mathResolved) break;
-        }
-        state.scannedUntilLine = Math.max(state.scannedUntilLine, cursor - 1);
-    }
-
-    if (state.scannedUntilLine >= doc.lines) {
-        finalizeFenceStateAtDocEnd(state);
-    }
+    finalizeFenceStateAtDocEnd(state);
     return state;
 }
 
 function findMathBlockRange(doc: Text, lineNumber: number): FenceRange | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const state = ensureFenceScanCoverage(doc, lineNumber);
+    const state = ensureFenceScanComplete(doc);
     return state.mathRangeByLine.get(lineNumber) ?? null;
 }
 
 function findCodeBlockRange(doc: Text, lineNumber: number): FenceRange | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const state = ensureFenceScanCoverage(doc, lineNumber);
+    const state = ensureFenceScanComplete(doc);
     return state.codeRangeByLine.get(lineNumber) ?? null;
 }
 

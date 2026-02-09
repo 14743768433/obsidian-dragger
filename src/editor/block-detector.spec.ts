@@ -141,6 +141,33 @@ describe('block-detector', () => {
         expect(innerLineBlock?.type).toBe(BlockType.Paragraph);
     });
 
+    it('keeps plain text between long fenced code blocks out of code range after deep-line lookup', () => {
+        const firstCodeLines = Array.from({ length: 1200 }, (_, i) => `const first_${i} = ${i};`);
+        const secondCodeLines = Array.from({ length: 1200 }, (_, i) => `const second_${i} = ${i};`);
+        const docLines = [
+            '```ts',
+            ...firstCodeLines,
+            '```',
+            'middle plain text',
+            '```ts',
+            ...secondCodeLines,
+            '```',
+            'tail',
+        ];
+        const state = createState(docLines.join('\n'));
+
+        const secondBlockProbeLine = firstCodeLines.length + 4 + 800;
+        const middleLine = firstCodeLines.length + 3;
+
+        const deepBlock = detectBlock(state, secondBlockProbeLine);
+        expect(deepBlock?.type).toBe(BlockType.CodeBlock);
+
+        const middleBlock = detectBlock(state, middleLine);
+        expect(middleBlock?.type).toBe(BlockType.Paragraph);
+        expect(middleBlock?.startLine).toBe(middleLine - 1);
+        expect(middleBlock?.endLine).toBe(middleLine - 1);
+    });
+
     it('returns heading section range until next same-or-higher heading', () => {
         const state = createState('# H1\nparagraph\n## H2\nsub\n# H1-2\ntail');
         const range = getHeadingSectionRange(state.doc, 1);
