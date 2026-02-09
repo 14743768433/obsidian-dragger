@@ -1,17 +1,18 @@
 [English](README.md) · [中文](README.zh-CN.md)
 
-# sss
+
+# Dragger (Obsidian Plugin)
+
+Drag any block (paragraphs, headings, lists, blockquotes, callouts, tables, math blocks, etc.) to rearrange content like Notion.
+
+---
+
 ## Features
 - Drag block-level content: paragraphs / headings / lists / tasks / blockquotes / callouts / tables / math blocks
 - Nested drag: horizontal position controls nesting level, vertical position controls insertion row
 - Configurable handle color and indicator color
 - Always-show handles option
 - Cross-file drag (experimental)
-
----
-# Dragger (Obsidian Plugin)
-
-Drag any block (paragraphs, headings, lists, blockquotes, callouts, tables, math blocks, etc.) to rearrange content like Notion.
 
 ---
 
