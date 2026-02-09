@@ -83,7 +83,7 @@
 
 .dnd-range-selection-link {
     position: absolute;
-    width: 2px;
+    width: 4px;
     transform: translateX(-50%);
     border-radius: 999px;
     background-color: var(--dnd-handle-color, var(--interactive-accent));
@@ -97,6 +97,16 @@
     pointer-events: none;
     cursor: grab;
     z-index: 10002;
+}
+
+.dnd-range-selection-link::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -10px;
+    right: -10px;
+    background: transparent;
 }
 
 /* 常态显示拖拽手柄 */

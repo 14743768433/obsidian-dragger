@@ -1284,4 +1284,110 @@ describe('DragEventHandler', () => {
         expect(scheduleDropIndicatorUpdate).toHaveBeenCalledWith(90, 80, expect.any(Object), 'touch');
         handler.destroy();
     });
+
+    it('skips range-selection flow on mouse when multi-line selection is disabled', () => {
+        const view = createViewStub(6);
+        const handle = document.createElement('div');
+        handle.className = 'dnd-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        view.dom.appendChild(handle);
+
+        const sourceBlock = createBlock('- item', 1, 1);
+        const beginPointerDragSession = vi.fn();
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: () => null,
+            getBlockInfoForHandle: () => sourceBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            isMultiLineSelectionEnabled: () => false,
+            beginPointerDragSession,
+            finishDragSession: vi.fn(),
+            scheduleDropIndicatorUpdate: vi.fn(),
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint: vi.fn(),
+        });
+
+        handler.attach();
+        dispatchPointer(handle, 'pointerdown', {
+            pointerId: 81,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+        vi.advanceTimersByTime(600);
+        dispatchPointer(window, 'pointermove', {
+            pointerId: 81,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 90,
+        });
+        dispatchPointer(window, 'pointerup', {
+            pointerId: 81,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 90,
+        });
+
+        expect(beginPointerDragSession).not.toHaveBeenCalled();
+        expect(view.dom.querySelector('.dnd-range-selection-link')).toBeNull();
+        handler.destroy();
+    });
+
+    it('falls back to single-block touch drag when multi-line selection is disabled', () => {
+        const view = createViewStub(8);
+        const handle = document.createElement('div');
+        handle.className = 'dnd-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        view.dom.appendChild(handle);
+
+        const sourceBlock = createBlock('- item', 1, 1);
+        const beginPointerDragSession = vi.fn();
+        const scheduleDropIndicatorUpdate = vi.fn();
+        const performDropAtPoint = vi.fn();
+        const finishDragSession = vi.fn();
+
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: () => null,
+            getBlockInfoForHandle: () => sourceBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            isMultiLineSelectionEnabled: () => false,
+            beginPointerDragSession,
+            finishDragSession,
+            scheduleDropIndicatorUpdate,
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint,
+        });
+
+        handler.attach();
+        dispatchPointer(handle, 'pointerdown', {
+            pointerId: 82,
+            pointerType: 'touch',
+            clientX: 12,
+            clientY: 30,
+        });
+        vi.advanceTimersByTime(260);
+        dispatchPointer(window, 'pointermove', {
+            pointerId: 82,
+            pointerType: 'touch',
+            clientX: 90,
+            clientY: 80,
+        });
+        dispatchPointer(window, 'pointerup', {
+            pointerId: 82,
+            pointerType: 'touch',
+            clientX: 90,
+            clientY: 80,
+        });
+
+        expect(beginPointerDragSession).toHaveBeenCalledTimes(1);
+        expect(scheduleDropIndicatorUpdate).toHaveBeenCalledWith(90, 80, expect.objectContaining({
+            startLine: 1,
+            endLine: 1,
+        }), 'touch');
+        expect(view.dom.querySelector('.dnd-range-selection-link')).toBeNull();
+        expect(performDropAtPoint).toHaveBeenCalledTimes(1);
+        expect(finishDragSession).toHaveBeenCalledTimes(1);
+        handler.destroy();
+    });
 });

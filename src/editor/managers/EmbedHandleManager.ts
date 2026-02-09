@@ -1,7 +1,13 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo } from '../../types';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
-import { getHandleColumnLeftPx, getHandleLeftPxForLine, getHandleTopPxForLine } from '../core/handle-position';
+import {
+    getHandleColumnLeftPx,
+    getHandleLeftPxForLine,
+    getHandleTopPxForLine,
+    viewportXToEditorLocalX,
+    viewportYToEditorLocalY,
+} from '../core/handle-position';
 import {
     HANDLE_SIZE_PX,
     EMBED_SCAN_DEBOUNCE_SMALL_MS,
@@ -100,6 +106,16 @@ export class EmbedHandleManager {
             const block = getBlockInfo();
             if (!block) return;
 
+            // Avoid duplicated handles when a line-level handle already represents this block.
+            if (this.hasInlineHandleForBlockStart(block.startLine)) {
+                const duplicated = this.embedHandles.get(embedEl);
+                if (duplicated) {
+                    this.cleanupHandle(embedEl, duplicated);
+                    this.embedHandles.delete(embedEl);
+                }
+                return;
+            }
+
             let entry = this.embedHandles.get(embedEl);
             if (!entry) {
                 const handle = this.deps.createHandleElement(getBlockInfo);
@@ -185,6 +201,11 @@ export class EmbedHandleManager {
         return false;
     }
 
+    private hasInlineHandleForBlockStart(blockStartLine: number): boolean {
+        const selector = `.dnd-drag-handle.dnd-line-handle[data-block-start="${blockStartLine}"]`;
+        return !!this.view.dom.querySelector(selector);
+    }
+
     private positionHandle(embedEl: HTMLElement, handle: HTMLElement): void {
         if (!this.isEmbedVisible(embedEl)) {
             handle.classList.remove('is-visible');
@@ -195,14 +216,19 @@ export class EmbedHandleManager {
         handle.style.display = '';
         const lineNumber = this.resolveHandleLineNumber(handle);
         const left = lineNumber
-            ? (getHandleLeftPxForLine(this.view, lineNumber) ?? getHandleColumnLeftPx(this.view))
+            ? getHandleLeftPxForLine(this.view, lineNumber)
             : getHandleColumnLeftPx(this.view);
         const top = lineNumber
             ? (getHandleTopPxForLine(this.view, lineNumber) ?? this.getEmbedFallbackTop(embedEl))
             : this.getEmbedFallbackTop(embedEl);
-        const editorRect = this.view.dom.getBoundingClientRect();
-        handle.style.left = `${Math.round(left - editorRect.left)}px`;
-        handle.style.top = `${Math.round(top - editorRect.top)}px`;
+        if (left === null) {
+            handle.style.display = 'none';
+            return;
+        }
+        const localLeft = viewportXToEditorLocalX(this.view, left);
+        const localTop = viewportYToEditorLocalY(this.view, top);
+        handle.style.left = `${Math.round(localLeft)}px`;
+        handle.style.top = `${Math.round(localTop)}px`;
     }
 
     private resolveHandleLineNumber(handle: HTMLElement): number | null {

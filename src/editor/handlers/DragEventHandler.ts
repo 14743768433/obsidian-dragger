@@ -1,6 +1,11 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo, DragLifecycleEvent } from '../../types';
-import { getHandleColumnCenterX, getLineNumberElementForLine } from '../core/handle-position';
+import {
+    getHandleColumnCenterX,
+    getLineNumberElementForLine,
+    viewportXToEditorLocalX,
+    viewportYToEditorLocalY,
+} from '../core/handle-position';
 import { detectBlock } from '../block-detector';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 
@@ -91,6 +96,7 @@ export interface DragEventHandlerDeps {
     getBlockInfoForHandle: (handle: HTMLElement) => BlockInfo | null;
     getBlockInfoAtPoint: (clientX: number, clientY: number) => BlockInfo | null;
     isBlockInsideRenderedTableCell: (blockInfo: BlockInfo) => boolean;
+    isMultiLineSelectionEnabled?: () => boolean;
     beginPointerDragSession: (blockInfo: BlockInfo) => void;
     finishDragSession: () => void;
     scheduleDropIndicatorUpdate: (clientX: number, clientY: number, dragSource: BlockInfo | null, pointerType: string | null) => void;
@@ -122,8 +128,13 @@ export class DragEventHandler {
         const target = e.target as HTMLElement | null;
         if (!target) return;
         const pointerType = e.pointerType || null;
+        const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
+        if (!multiLineSelectionEnabled) {
+            this.clearCommittedRangeSelection();
+        }
         const canHandleCommittedSelection = (
-            e.button === 0
+            multiLineSelectionEnabled
+            && e.button === 0
             && !this.pointerDragState
             && !this.pointerPressState
             && !this.mouseRangeSelectState
@@ -160,8 +171,11 @@ export class DragEventHandler {
         if (!blockInfo) return;
         if (this.deps.isBlockInsideRenderedTableCell(blockInfo)) return;
         if (!this.isWithinMobileDragHotzone(blockInfo, e.clientX)) return;
-
-        this.startRangeSelect(blockInfo, e, null);
+        if (multiLineSelectionEnabled) {
+            this.startRangeSelect(blockInfo, e, null);
+        } else {
+            this.startPointerPressDrag(blockInfo, e);
+        }
     };
 
     private readonly onEditorDragEnter = (e: DragEvent) => {
@@ -253,14 +267,22 @@ export class DragEventHandler {
         if (!blockInfo) return;
         if (this.deps.isBlockInsideRenderedTableCell(blockInfo)) return;
 
+        const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
         if (e.pointerType === 'mouse') {
             if (e.button !== 0) return;
+            if (!multiLineSelectionEnabled) {
+                return;
+            }
             this.startRangeSelect(blockInfo, e, handle);
             return;
         }
 
         if (this.isMobileEnvironment()) {
-            this.startRangeSelect(blockInfo, e, handle);
+            if (multiLineSelectionEnabled) {
+                this.startRangeSelect(blockInfo, e, handle);
+            } else {
+                this.startPointerPressDrag(blockInfo, e);
+            }
             return;
         }
 
@@ -295,6 +317,10 @@ export class DragEventHandler {
     }
 
     refreshSelectionVisual(): void {
+        if (!this.isMultiLineSelectionEnabled()) {
+            this.clearCommittedRangeSelection();
+            return;
+        }
         this.scheduleRangeSelectionVisualRefresh();
     }
 
@@ -1289,7 +1315,8 @@ export class DragEventHandler {
     private updateRangeSelectionLinks(ranges: LineRange[]): void {
         const editorRect = this.view.dom.getBoundingClientRect();
         const centerX = getHandleColumnCenterX(this.view);
-        const left = centerX - editorRect.left;
+        const left = viewportXToEditorLocalX(this.view, centerX);
+        const localViewportHeight = Math.max(0, this.view.dom.clientHeight || editorRect.height);
 
         for (let i = 0; i < ranges.length; i++) {
             const range = ranges[i];
@@ -1303,10 +1330,10 @@ export class DragEventHandler {
             }
             const topY = Math.min(startAnchorY, endAnchorY);
             const bottomY = Math.max(startAnchorY, endAnchorY);
-            const top = topY - editorRect.top;
-            const bottom = bottomY - editorRect.top;
-            const clampedTop = Math.max(0, Math.min(editorRect.height, top));
-            const clampedBottom = Math.max(clampedTop + 2, Math.min(editorRect.height, bottom));
+            const top = viewportYToEditorLocalY(this.view, topY);
+            const bottom = viewportYToEditorLocalY(this.view, bottomY);
+            const clampedTop = Math.max(0, Math.min(localViewportHeight, top));
+            const clampedBottom = Math.max(clampedTop + 2, Math.min(localViewportHeight, bottom));
             link.style.opacity = '1';
             link.style.pointerEvents = 'auto';
             link.style.left = `${left.toFixed(2)}px`;
@@ -1744,5 +1771,10 @@ export class DragEventHandler {
 
     private emitLifecycle(event: DragLifecycleEvent): void {
         this.deps.onDragLifecycleEvent?.(event);
+    }
+
+    private isMultiLineSelectionEnabled(): boolean {
+        if (!this.deps.isMultiLineSelectionEnabled) return true;
+        return this.deps.isMultiLineSelectionEnabled();
     }
 }

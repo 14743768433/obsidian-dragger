@@ -1,5 +1,6 @@
 import { Plugin } from 'obsidian';
 import { dragHandleExtension } from './editor/drag-handle';
+import { setHandleHorizontalOffsetPx } from './editor/core/handle-position';
 import { DragNDropSettings, DEFAULT_SETTINGS, DragNDropSettingTab } from './settings';
 import { DragLifecycleEvent, DragLifecycleListener } from './types';
 
@@ -39,6 +40,13 @@ export default class DragNDropPlugin extends Plugin {
     applySettings() {
         const body = document.body;
         body.classList.toggle('dnd-handles-always', this.settings.alwaysShowHandles);
+        const rawHandleOffset = Number(this.settings.handleHorizontalOffsetPx);
+        const handleOffset = Number.isFinite(rawHandleOffset)
+            ? Math.max(-80, Math.min(80, Math.round(rawHandleOffset)))
+            : 0;
+        this.settings.handleHorizontalOffsetPx = handleOffset;
+        setHandleHorizontalOffsetPx(handleOffset);
+        body.style.setProperty('--dnd-handle-horizontal-offset-px', `${handleOffset}px`);
 
         let colorValue = '';
         if (this.settings.handleColorMode === 'theme') {
@@ -67,6 +75,8 @@ export default class DragNDropPlugin extends Plugin {
         } else {
             body.style.removeProperty('--dnd-drop-indicator-color');
         }
+
+        window.dispatchEvent(new Event('dnd:settings-updated'));
     }
 
     onDragLifecycleEvent(listener: DragLifecycleListener): () => void {

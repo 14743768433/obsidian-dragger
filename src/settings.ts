@@ -14,6 +14,10 @@ export interface DragNDropSettings {
     indicatorColor: string;
     // 是否启用跨文件拖拽
     enableCrossFileDrag: boolean;
+    // 是否启用多行选取拖拽
+    enableMultiLineSelection: boolean;
+    // 手柄横向偏移量（像素）
+    handleHorizontalOffsetPx: number;
 }
 
 export const DEFAULT_SETTINGS: DragNDropSettings = {
@@ -23,6 +27,8 @@ export const DEFAULT_SETTINGS: DragNDropSettings = {
     indicatorColorMode: 'theme',
     indicatorColor: '#7a7a7a',
     enableCrossFileDrag: false,
+    enableMultiLineSelection: true,
+    handleHorizontalOffsetPx: 0,
 };
 
 export class DragNDropSettingTab extends PluginSettingTab {
@@ -71,6 +77,18 @@ export class DragNDropSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                 }));
 
+        new Setting(containerEl)
+            .setName('手柄横向位置')
+            .setDesc('向左为负值，向右为正值')
+            .addSlider((slider) => slider
+                .setLimits(-80, 80, 1)
+                .setDynamicTooltip()
+                .setValue(this.plugin.settings.handleHorizontalOffsetPx)
+                .onChange(async (value) => {
+                    this.plugin.settings.handleHorizontalOffsetPx = value;
+                    await this.plugin.saveSettings();
+                }));
+
         const indicatorSetting = new Setting(containerEl)
             .setName('定位栏颜色')
             .setDesc('可跟随主题色，或自定义颜色（选择自定义时生效）');
@@ -90,6 +108,17 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 this.plugin.settings.indicatorColor = value;
                 await this.plugin.saveSettings();
             }));
+
+        containerEl.createEl('h3', { text: '功能' });
+        new Setting(containerEl)
+            .setName('开启多行选取')
+            .setDesc('关闭后仅保留单块拖拽，不进入多行选取流程')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.enableMultiLineSelection)
+                .onChange(async (value) => {
+                    this.plugin.settings.enableMultiLineSelection = value;
+                    await this.plugin.saveSettings();
+                }));
 
         // Cross-file drag remains disabled in this release.
         // Keep the persisted setting key for backward compatibility, but hide it from UI.

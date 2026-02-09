@@ -2,6 +2,7 @@
 
 import type { EditorView } from '@codemirror/view';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BlockType } from '../../types';
 import { EmbedHandleManager } from './EmbedHandleManager';
 
 function createViewStub(): EditorView {
@@ -75,5 +76,37 @@ describe('EmbedHandleManager', () => {
         expect(cancelSpy).toHaveBeenCalledWith(7);
         queued?.(0);
         expect(rescanSpy).not.toHaveBeenCalled();
+    });
+
+    it('skips embed handle when an inline line handle already exists for the same block', () => {
+        const view = createViewStub();
+        const embed = document.createElement('div');
+        embed.className = 'cm-callout';
+        view.dom.appendChild(embed);
+
+        const inlineHandle = document.createElement('div');
+        inlineHandle.className = 'dnd-drag-handle dnd-line-handle';
+        inlineHandle.setAttribute('data-block-start', '0');
+        view.dom.appendChild(inlineHandle);
+
+        const createHandleElement = vi.fn(() => document.createElement('div'));
+        const manager = new EmbedHandleManager(view, {
+            createHandleElement,
+            resolveBlockInfoForEmbed: () => ({
+                type: BlockType.Callout,
+                startLine: 0,
+                endLine: 2,
+                from: 0,
+                to: 12,
+                indentLevel: 0,
+                content: '> [!note]\\ncontent',
+            }),
+        });
+
+        manager.rescan();
+
+        expect(createHandleElement).not.toHaveBeenCalled();
+        expect(view.dom.querySelector('.dnd-embed-handle')).toBeNull();
+        manager.destroy();
     });
 });

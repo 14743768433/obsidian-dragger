@@ -94,6 +94,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             private viewportScrollRefreshRafHandle: number | null = null;
             private readonly onDocumentPointerMove = (e: PointerEvent) => this.handleDocumentPointerMove(e);
             private readonly onViewportScroll = () => this.scheduleViewportRefreshFromScroll();
+            private readonly onSettingsUpdated = () => this.handleSettingsUpdated();
 
             constructor(view: EditorView) {
                 this.view = view;
@@ -201,6 +202,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         }),
                     isBlockInsideRenderedTableCell: (blockInfo) =>
                         isPosInsideRenderedTableCell(this.view, blockInfo.from, { skipLayoutRead: true }),
+                    isMultiLineSelectionEnabled: () => _plugin.settings.enableMultiLineSelection,
                     beginPointerDragSession: (blockInfo) => {
                         this.ensureDragPerfSession();
                         const startLineNumber = blockInfo.startLine + 1;
@@ -227,6 +229,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.embedHandleManager.start();
                 this.bindViewportScrollFallback();
                 document.addEventListener('pointermove', this.onDocumentPointerMove, { passive: true });
+                window.addEventListener('dnd:settings-updated', this.onSettingsUpdated);
 
                 // Pre-warm fence scan during idle to ensure code/math block boundaries are ready
                 const warmupFenceScan = () => prewarmFenceScan(view.state.doc);
@@ -270,6 +273,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     this.setActiveVisibleHandle(null);
                 }
             }
+
             createHandleElement(getBlockInfo: () => BlockInfo | null): HTMLElement {
                 const handle = createDragHandleElement({
                     onDragStart: (e, el) => {
@@ -346,15 +350,21 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         clientY: e.clientY,
                         fallback: getBlockInfo,
                     });
-                    const blockInfo = resolveCurrentBlock();
-                    if (blockInfo) {
-                        this.enterGrabVisualState(
-                            blockInfo.startLine + 1,
-                            blockInfo.endLine + 1,
-                            handle
-                        );
-                    } else {
-                        this.setActiveVisibleHandle(handle);
+                    const shouldPrimePointerVisual = !(
+                        e.pointerType === 'mouse'
+                        && !_plugin.settings.enableMultiLineSelection
+                    );
+                    if (shouldPrimePointerVisual) {
+                        const blockInfo = resolveCurrentBlock();
+                        if (blockInfo) {
+                            this.enterGrabVisualState(
+                                blockInfo.startLine + 1,
+                                blockInfo.endLine + 1,
+                                handle
+                            );
+                        } else {
+                            this.setActiveVisibleHandle(handle);
+                        }
                     }
                     this.dragEventHandler.startPointerDragFromHandle(handle, e, () => resolveCurrentBlock());
                 });
@@ -418,11 +428,13 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.clearPendingSemanticRefresh();
                 this.unbindViewportScrollFallback();
                 document.removeEventListener('pointermove', this.onDocumentPointerMove);
+                window.removeEventListener('dnd:settings-updated', this.onSettingsUpdated);
                 this.clearGrabbedLineNumbers();
                 this.setActiveVisibleHandle(null);
                 finishDragSession(this.view);
                 this.flushDragPerfSession('destroy');
                 this.dragEventHandler.destroy();
+                this.lineHandleManager.destroy();
                 this.view.dom.classList.remove(ROOT_EDITOR_CLASS);
                 this.view.contentDOM.classList.remove(MAIN_EDITOR_CONTENT_CLASS);
                 this.embedHandleManager.destroy();
@@ -819,6 +831,11 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     window.clearTimeout(this.semanticRefreshTimerHandle);
                     this.semanticRefreshTimerHandle = null;
                 }
+            }
+
+            private handleSettingsUpdated(): void {
+                this.refreshDecorationsAndEmbeds();
+                this.dragEventHandler.refreshSelectionVisual();
             }
 
             private getSemanticRefreshDelayMs(docLines: number): number {

@@ -1,8 +1,12 @@
 import { EditorView } from '@codemirror/view';
 import { BlockInfo, BlockType } from '../../types';
 import { detectBlock, getListItemOwnRangeForHandle } from '../block-detector';
-import { getHandleColumnLeftPx, getHandleLeftPxForLine, getHandleTopPxForLine } from '../core/handle-position';
-import { alignInlineHandleToHandleColumn } from '../core/handle-position';
+import {
+    getHandleLeftPxForLine,
+    getHandleTopPxForLine,
+    viewportXToEditorLocalX,
+    viewportYToEditorLocalY,
+} from '../core/handle-position';
 
 type LineHandleEntry = {
     handle: HTMLElement;
@@ -170,20 +174,18 @@ export class LineHandleManager {
             return;
         }
 
-        const left = getHandleLeftPxForLine(this.view, lineNumber) ?? getHandleColumnLeftPx(this.view);
+        const left = getHandleLeftPxForLine(this.view, lineNumber);
         const top = getHandleTopPxForLine(this.view, lineNumber);
 
-        if (top === null) {
+        if (left === null || top === null) {
             handle.style.display = 'none';
             return;
         }
 
         handle.style.display = '';
-        const editorRect = this.view.dom.getBoundingClientRect();
-        handle.style.left = `${Math.round(left - editorRect.left)}px`;
-        handle.style.top = `${Math.round(top - editorRect.top)}px`;
-
-        // Align to handle column after positioning
-        alignInlineHandleToHandleColumn(this.view, handle, lineNumber);
+        const localLeft = viewportXToEditorLocalX(this.view, left);
+        const localTop = viewportYToEditorLocalY(this.view, top);
+        handle.style.left = `${Math.round(localLeft)}px`;
+        handle.style.top = `${Math.round(localTop)}px`;
     }
 }
