@@ -48,8 +48,28 @@ type ListCalcContext = {
 
 const LARGE_DOC_HIGHLIGHT_THRESHOLD = 30_000;
 const MAX_PRECISE_HIGHLIGHT_SCAN_LINES = 200;
+const LIST_TARGET_X_BUCKET_PX_MIN = 4;
+
+type MarkerBounds = { markerStartX: number; contentStartX: number } | null;
+
+type MarkerBoundsSessionCache = {
+    state: unknown;
+    scrollLeft: number;
+    scrollTop: number;
+    byLine: Map<number, MarkerBounds>;
+};
+
+type ListTargetSessionCache = {
+    state: unknown;
+    scrollLeft: number;
+    scrollTop: number;
+    byKey: Map<string, ListDropTargetInfo>;
+};
 
 export class ListDropTargetCalculator {
+    private markerBoundsSessionCache: MarkerBoundsSessionCache | null = null;
+    private listTargetSessionCache: ListTargetSessionCache | null = null;
+
     constructor(
         private readonly view: EditorView,
         private readonly deps: ListDropTargetCalculatorDeps
@@ -65,6 +85,11 @@ export class ListDropTargetCalculator {
         if (memo && memo.markerBoundsByLine.has(lineNumber)) {
             return memo.markerBoundsByLine.get(lineNumber) ?? null;
         }
+        const sessionCached = this.getCachedMarkerBounds(lineNumber);
+        if (sessionCached !== undefined) {
+            if (memo) memo.markerBoundsByLine.set(lineNumber, sessionCached);
+            return sessionCached;
+        }
 
         const parsed = this.getParsedLineAtLineNumber(
             doc,
@@ -74,6 +99,7 @@ export class ListDropTargetCalculator {
         );
         if (!parsed || !parsed.isListItem) {
             if (memo) memo.markerBoundsByLine.set(lineNumber, null);
+            this.setCachedMarkerBounds(lineNumber, null);
             return null;
         }
 
@@ -84,6 +110,7 @@ export class ListDropTargetCalculator {
         const contentStart = getCoordsAtPos(this.view, contentStartPos, options?.frameCache);
         if (!markerStart || !contentStart) {
             if (memo) memo.markerBoundsByLine.set(lineNumber, null);
+            this.setCachedMarkerBounds(lineNumber, null);
             return null;
         }
 
@@ -92,6 +119,7 @@ export class ListDropTargetCalculator {
             contentStartX: contentStart.left,
         };
         if (memo) memo.markerBoundsByLine.set(lineNumber, bounds);
+        this.setCachedMarkerBounds(lineNumber, bounds);
         return bounds;
     }
 
@@ -117,6 +145,22 @@ export class ListDropTargetCalculator {
         } = params;
         if (!dragSource || dragSource.type !== BlockType.ListItem) return {};
 
+        const cacheKey = this.buildListTargetCacheKey({
+            targetLineNumber,
+            lineNumber,
+            forcedLineNumber,
+            childIntentOnLine,
+            dragSource,
+            clientX,
+        });
+        const cached = this.getCachedListTarget(cacheKey);
+        if (cached) return cached;
+
+        const finalize = (result: ListDropTargetInfo): ListDropTargetInfo => {
+            this.setCachedListTarget(cacheKey, result);
+            return result;
+        };
+
         const doc = this.view.state.doc;
         const lineMap = providedLineMap ?? getLineMap(this.view.state);
         const memo: ListCalcMemo = {
@@ -138,16 +182,16 @@ export class ListDropTargetCalculator {
         if (!forcedLineNumber && childIntentOnLine) {
             referenceLineNumber = lineNumber;
         }
-        if (referenceLineNumber < 1) return {};
+        if (referenceLineNumber < 1) return finalize({});
 
         const baseLineNumber = this.resolveReferenceListLineNumber(referenceLineNumber, lineMap);
-        if (baseLineNumber === null) return {};
+        if (baseLineNumber === null) return finalize({});
         const isSelfTarget = !!dragSource
             && dragSource.type === BlockType.ListItem
             && baseLineNumber === dragSource.startLine + 1;
         const allowChild = !isSelfTarget;
         const dropTarget = this.getListDropTarget(baseLineNumber, clientX, allowChild, context);
-        if (!dropTarget) return {};
+        if (!dropTarget) return finalize({});
 
         const listContextLineNumber = dropTarget.lineNumber;
         const listIndentDelta = dropTarget.mode === 'child' ? 1 : 0;
@@ -179,13 +223,13 @@ export class ListDropTargetCalculator {
             context,
         });
 
-        return {
+        return finalize({
             listContextLineNumber,
             listIndentDelta,
             listTargetIndentWidth,
             highlightRect: highlightInfo.highlightRect,
             lineRectSourceLineNumber: highlightInfo.lineRectSourceLineNumber,
-        };
+        });
     }
 
     private computeHighlightRectForList(params: {
@@ -228,6 +272,25 @@ export class ListDropTargetCalculator {
         const lineCount = blockEndLineNumber - blockStartLineNumber + 1;
         const shouldUseFallbackRect = context.doc.lines > LARGE_DOC_HIGHLIGHT_THRESHOLD
             || lineCount > MAX_PRECISE_HIGHLIGHT_SCAN_LINES;
+        if (shouldUseFallbackRect) {
+            const startLineObj = context.doc.line(blockStartLineNumber);
+            const startCoords = getCoordsAtPos(this.view, startLineObj.from, context.frameCache);
+            const endCoords = getCoordsAtPos(this.view, startLineObj.to, context.frameCache);
+            if (bounds && startCoords && endCoords) {
+                const right = endCoords.right ?? endCoords.left;
+                return {
+                    lineRectSourceLineNumber,
+                    highlightRect: {
+                        top: startCoords.top,
+                        left: bounds.markerStartX,
+                        width: Math.max(8, right - bounds.markerStartX),
+                        height: Math.max(4, endCoords.bottom - startCoords.top),
+                    },
+                };
+            }
+            return { lineRectSourceLineNumber };
+        }
+
         if (!shouldUseFallbackRect) {
             const startLineObj = context.doc.line(blockStartLineNumber);
             const endLineObj = context.doc.line(blockEndLineNumber);
@@ -258,34 +321,7 @@ export class ListDropTargetCalculator {
                 };
             }
         }
-
-        const fallbackRect = this.deps.getBlockRect(
-            blockStartLineNumber,
-            blockEndLineNumber,
-            context.frameCache
-        );
-        if (!fallbackRect) {
-            return { lineRectSourceLineNumber };
-        }
-
-        if (!bounds) {
-            return {
-                lineRectSourceLineNumber,
-                highlightRect: fallbackRect,
-            };
-        }
-
-        const right = fallbackRect.left + fallbackRect.width;
-        const left = bounds.markerStartX;
-        return {
-            lineRectSourceLineNumber,
-            highlightRect: {
-                top: fallbackRect.top,
-                left,
-                width: Math.max(8, right - left),
-                height: fallbackRect.height,
-            },
-        };
+        return { lineRectSourceLineNumber };
 
     }
 
@@ -496,5 +532,124 @@ export class ListDropTargetCalculator {
             if (parsed.indentWidth === targetIndent) return i;
         }
         return null;
+    }
+
+    private buildListTargetCacheKey(params: {
+        targetLineNumber: number;
+        lineNumber: number;
+        forcedLineNumber: number | null;
+        childIntentOnLine: boolean;
+        dragSource: BlockInfo;
+        clientX: number;
+    }): string {
+        const bucketSize = Math.max(
+            LIST_TARGET_X_BUCKET_PX_MIN,
+            Math.round((this.view.defaultCharacterWidth || 7) / 2)
+        );
+        const clientXBucket = Math.round(params.clientX / bucketSize);
+        return [
+            params.targetLineNumber,
+            params.lineNumber,
+            params.forcedLineNumber ?? 'n',
+            params.childIntentOnLine ? '1' : '0',
+            clientXBucket,
+            params.dragSource.type,
+            params.dragSource.startLine,
+            params.dragSource.endLine,
+            params.dragSource.from,
+            params.dragSource.to,
+        ].join('|');
+    }
+
+    private getScrollSignature(): { scrollLeft: number; scrollTop: number } {
+        const scrollDOM = (this.view as unknown as { scrollDOM?: HTMLElement }).scrollDOM;
+        if (!scrollDOM) return { scrollLeft: 0, scrollTop: 0 };
+        return {
+            scrollLeft: Math.round(scrollDOM.scrollLeft || 0),
+            scrollTop: Math.round(scrollDOM.scrollTop || 0),
+        };
+    }
+
+    private getCachedMarkerBounds(lineNumber: number): MarkerBounds | undefined {
+        const currentState = this.view.state;
+        const scroll = this.getScrollSignature();
+        const cache = this.markerBoundsSessionCache;
+        if (
+            !cache
+            || cache.state !== currentState
+            || cache.scrollLeft !== scroll.scrollLeft
+            || cache.scrollTop !== scroll.scrollTop
+        ) {
+            this.markerBoundsSessionCache = {
+                state: currentState,
+                scrollLeft: scroll.scrollLeft,
+                scrollTop: scroll.scrollTop,
+                byLine: new Map<number, MarkerBounds>(),
+            };
+            return undefined;
+        }
+        return cache.byLine.get(lineNumber);
+    }
+
+    private setCachedMarkerBounds(lineNumber: number, value: MarkerBounds): void {
+        const currentState = this.view.state;
+        const scroll = this.getScrollSignature();
+        if (
+            !this.markerBoundsSessionCache
+            || this.markerBoundsSessionCache.state !== currentState
+            || this.markerBoundsSessionCache.scrollLeft !== scroll.scrollLeft
+            || this.markerBoundsSessionCache.scrollTop !== scroll.scrollTop
+        ) {
+            this.markerBoundsSessionCache = {
+                state: currentState,
+                scrollLeft: scroll.scrollLeft,
+                scrollTop: scroll.scrollTop,
+                byLine: new Map<number, MarkerBounds>(),
+            };
+        }
+        this.markerBoundsSessionCache.byLine.set(lineNumber, value);
+    }
+
+    private getCachedListTarget(key: string): ListDropTargetInfo | null {
+        const currentState = this.view.state;
+        const scroll = this.getScrollSignature();
+        const cache = this.listTargetSessionCache;
+        if (
+            !cache
+            || cache.state !== currentState
+            || cache.scrollLeft !== scroll.scrollLeft
+            || cache.scrollTop !== scroll.scrollTop
+        ) {
+            this.listTargetSessionCache = {
+                state: currentState,
+                scrollLeft: scroll.scrollLeft,
+                scrollTop: scroll.scrollTop,
+                byKey: new Map<string, ListDropTargetInfo>(),
+            };
+            return null;
+        }
+        return cache.byKey.get(key) ?? null;
+    }
+
+    private setCachedListTarget(key: string, result: ListDropTargetInfo): void {
+        const currentState = this.view.state;
+        const scroll = this.getScrollSignature();
+        if (
+            !this.listTargetSessionCache
+            || this.listTargetSessionCache.state !== currentState
+            || this.listTargetSessionCache.scrollLeft !== scroll.scrollLeft
+            || this.listTargetSessionCache.scrollTop !== scroll.scrollTop
+        ) {
+            this.listTargetSessionCache = {
+                state: currentState,
+                scrollLeft: scroll.scrollLeft,
+                scrollTop: scroll.scrollTop,
+                byKey: new Map<string, ListDropTargetInfo>(),
+            };
+        }
+        if (this.listTargetSessionCache.byKey.size > 512) {
+            this.listTargetSessionCache.byKey.clear();
+        }
+        this.listTargetSessionCache.byKey.set(key, result);
     }
 }

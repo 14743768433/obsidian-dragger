@@ -1,6 +1,39 @@
 import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
-import { getLineMap, getLineMetaAt } from './line-map';
+import {
+    buildLineMap,
+    getLineMap,
+    getLineMetaAt,
+    primeLineMapFromTransition,
+} from './line-map';
+
+function nowMs(): number {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+        return performance.now();
+    }
+    return Date.now();
+}
+
+function percentile(samples: number[], p: number): number {
+    if (samples.length === 0) return 0;
+    const sorted = [...samples].sort((a, b) => a - b);
+    const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+    return Number(sorted[index].toFixed(3));
+}
+
+function summarizeDurations(samples: number[]): {
+    count: number;
+    p50: number;
+    p95: number;
+    max: number;
+} {
+    return {
+        count: samples.length,
+        p50: percentile(samples, 0.5),
+        p95: percentile(samples, 0.95),
+        max: percentile(samples, 1),
+    };
+}
 
 describe('line-map', () => {
     it('builds line metadata and non-empty indexes', () => {
@@ -53,5 +86,132 @@ describe('line-map', () => {
 
         expect(first).toBe(second);
         expect(getLineMap(stateC)).not.toBe(first);
+    });
+
+    it('primes next line map from transition changes and matches full build output', () => {
+        const previousState = EditorState.create({
+            doc: '- root\n- sibling\nplain',
+        });
+        const previousMap = getLineMap(previousState);
+        expect(previousMap.doc.lines).toBe(3);
+
+        const tr = previousState.update({
+            changes: {
+                from: previousState.doc.line(2).to,
+                to: previousState.doc.line(2).to,
+                insert: '\n  - child',
+            },
+        });
+        const nextState = tr.state;
+
+        const primed = primeLineMapFromTransition({
+            previousState,
+            nextState,
+            changes: tr.changes,
+        });
+        const rebuilt = buildLineMap(nextState);
+
+        expect(primed.doc).toBe(nextState.doc);
+        expect(primed.lineMeta).toEqual(rebuilt.lineMeta);
+        expect(Array.from(primed.prevNonEmpty)).toEqual(Array.from(rebuilt.prevNonEmpty));
+        expect(Array.from(primed.nextNonEmpty)).toEqual(Array.from(rebuilt.nextNonEmpty));
+        expect(Array.from(primed.prevListLine)).toEqual(Array.from(rebuilt.prevListLine));
+        expect(Array.from(primed.listParentLine)).toEqual(Array.from(rebuilt.listParentLine));
+        expect(Array.from(primed.listSubtreeEndLine)).toEqual(Array.from(rebuilt.listSubtreeEndLine));
+        expect(getLineMap(nextState)).toBe(primed);
+    });
+
+    it('reuses index arrays when typing does not change structural metadata', () => {
+        const previousState = EditorState.create({
+            doc: '- item\nplain text\n> quote',
+        });
+        const previous = getLineMap(previousState);
+        const tr = previousState.update({
+            changes: {
+                from: previousState.doc.line(2).to,
+                to: previousState.doc.line(2).to,
+                insert: '!',
+            },
+        });
+        const next = primeLineMapFromTransition({
+            previousState,
+            nextState: tr.state,
+            changes: tr.changes,
+        });
+
+        expect(next.prevNonEmpty).toBe(previous.prevNonEmpty);
+        expect(next.nextNonEmpty).toBe(previous.nextNonEmpty);
+        expect(next.prevListLine).toBe(previous.prevListLine);
+        expect(next.listParentLine).toBe(previous.listParentLine);
+        expect(next.listSubtreeEndLine).toBe(previous.listSubtreeEndLine);
+    });
+
+    it('typing performance smoke test logs stats to console', () => {
+        const docLinesRaw = Number(process.env.DRAGGER_TYPING_PERF_LINES ?? 12000);
+        const iterationsRaw = Number(process.env.DRAGGER_TYPING_PERF_ITERS ?? 120);
+        const docLines = Number.isFinite(docLinesRaw) && docLinesRaw > 100 ? Math.floor(docLinesRaw) : 12000;
+        const iterations = Number.isFinite(iterationsRaw) && iterationsRaw > 0 ? Math.floor(iterationsRaw) : 120;
+
+        const sourceLines: string[] = [];
+        for (let i = 1; i <= docLines; i++) {
+            if (i % 9 === 0) {
+                sourceLines.push(`> quote line ${i}`);
+            } else if (i % 5 === 0) {
+                sourceLines.push(`- [ ] list item ${i}`);
+            } else {
+                sourceLines.push(`plain line ${i}`);
+            }
+        }
+
+        let state = EditorState.create({ doc: sourceLines.join('\n') });
+        getLineMap(state);
+
+        const totalDurations: number[] = [];
+        const primeDurations: number[] = [];
+        const getDurations: number[] = [];
+
+        for (let i = 0; i < iterations; i++) {
+            const lineNumber = 1 + (i % docLines);
+            const line = state.doc.line(lineNumber);
+            const insert = i % 2 === 0 ? 'a' : 'b';
+            const totalStartedAt = nowMs();
+            const tr = state.update({
+                changes: {
+                    from: line.to,
+                    to: line.to,
+                    insert,
+                },
+            });
+
+            const primeStartedAt = nowMs();
+            const primed = primeLineMapFromTransition({
+                previousState: state,
+                nextState: tr.state,
+                changes: tr.changes,
+            });
+            primeDurations.push(nowMs() - primeStartedAt);
+
+            const getStartedAt = nowMs();
+            const cached = getLineMap(tr.state);
+            getDurations.push(nowMs() - getStartedAt);
+            totalDurations.push(nowMs() - totalStartedAt);
+
+            expect(cached).toBe(primed);
+            state = tr.state;
+        }
+
+        const report = {
+            docLines,
+            iterations,
+            total: summarizeDurations(totalDurations),
+            prime: summarizeDurations(primeDurations),
+            get: summarizeDurations(getDurations),
+        };
+
+        console.info('[Dragger][PerfTest] typing_line_map', JSON.stringify(report, null, 2));
+
+        expect(report.total.count).toBe(iterations);
+        expect(report.prime.p95).toBeGreaterThanOrEqual(0);
+        expect(report.get.p95).toBeGreaterThanOrEqual(0);
     });
 });

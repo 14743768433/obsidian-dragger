@@ -1,6 +1,6 @@
 import { EditorState, Text } from '@codemirror/state';
 import { BlockType, BlockInfo } from '../types';
-import { getLineMap, getLineMetaAt } from './core/line-map';
+import { getLineMap, getLineMetaAt, peekCachedLineMap } from './core/line-map';
 
 export function getHeadingLevel(lineText: string): number | null {
     const trimmed = lineText.trimStart();
@@ -307,15 +307,18 @@ function isSingleLineMathFence(lineText: string): boolean {
 
 type FenceRange = { startLine: number; endLine: number };
 
-type FenceRangeIndex = {
-    codeStartByLine: Int32Array;
-    codeEndByLine: Int32Array;
-    mathStartByLine: Int32Array;
-    mathEndByLine: Int32Array;
+type FenceLazyScanState = {
+    scannedUntilLine: number;
+    openCodeStartLine: number;
+    openMathStartLine: number;
+    fullyScanned: boolean;
+    codeRangeByLine: Map<number, FenceRange>;
+    mathRangeByLine: Map<number, FenceRange>;
 };
 
-const fenceRangeIndexCache = new WeakMap<Text, FenceRangeIndex>();
+const fenceLazyScanCache = new WeakMap<Text, FenceLazyScanState>();
 const blockDetectionCache = new WeakMap<Text, Map<number, Map<number, BlockInfo | null>>>();
+const LIST_LINE_MAP_COLD_BUILD_MAX_LINES = 30_000;
 
 type DetectBlockPerfDurationKey = 'detect_block_uncached';
 
@@ -340,88 +343,112 @@ export function setDetectBlockPerfRecorder(
     detectBlockPerfRecorder = recorder;
 }
 
-function assignFenceRange(startByLine: Int32Array, endByLine: Int32Array, startLine: number, endLine: number): void {
+function assignFenceRangeByLine(rangeByLine: Map<number, FenceRange>, startLine: number, endLine: number): void {
+    const range: FenceRange = { startLine, endLine };
     for (let i = startLine; i <= endLine; i++) {
-        startByLine[i] = startLine;
-        endByLine[i] = endLine;
+        rangeByLine.set(i, range);
     }
 }
 
-function buildFenceRangeIndex(doc: Text): FenceRangeIndex {
-    const codeStartByLine = new Int32Array(doc.lines + 1);
-    const codeEndByLine = new Int32Array(doc.lines + 1);
-    const mathStartByLine = new Int32Array(doc.lines + 1);
-    const mathEndByLine = new Int32Array(doc.lines + 1);
-
-    let codeStartLine = 0;
-    let mathStartLine = 0;
-
-    for (let i = 1; i <= doc.lines; i++) {
-        const text = doc.line(i).text;
-
-        if (isCodeFenceLine(text)) {
-            if (codeStartLine === 0) {
-                codeStartLine = i;
-            } else {
-                assignFenceRange(codeStartByLine, codeEndByLine, codeStartLine, i);
-                codeStartLine = 0;
-            }
-        }
-
-        if (isMathFenceLine(text)) {
-            if (mathStartLine === 0) {
-                if (isSingleLineMathFence(text)) {
-                    assignFenceRange(mathStartByLine, mathEndByLine, i, i);
-                } else {
-                    mathStartLine = i;
-                }
-            } else {
-                assignFenceRange(mathStartByLine, mathEndByLine, mathStartLine, i);
-                mathStartLine = 0;
-            }
-        }
-    }
-
-    // 与原行为保持一致：未闭合 code fence 仅将起始 fence 行视为代码块
-    if (codeStartLine !== 0) {
-        assignFenceRange(codeStartByLine, codeEndByLine, codeStartLine, codeStartLine);
-    }
-
+function createFenceLazyScanState(): FenceLazyScanState {
     return {
-        codeStartByLine,
-        codeEndByLine,
-        mathStartByLine,
-        mathEndByLine,
+        scannedUntilLine: 0,
+        openCodeStartLine: 0,
+        openMathStartLine: 0,
+        fullyScanned: false,
+        codeRangeByLine: new Map<number, FenceRange>(),
+        mathRangeByLine: new Map<number, FenceRange>(),
     };
 }
 
-function getFenceRangeIndex(doc: Text): FenceRangeIndex {
-    const cached = fenceRangeIndexCache.get(doc);
+function getFenceLazyScanState(doc: Text): FenceLazyScanState {
+    const cached = fenceLazyScanCache.get(doc);
     if (cached) return cached;
-    const built = buildFenceRangeIndex(doc);
-    fenceRangeIndexCache.set(doc, built);
-    return built;
+    const created = createFenceLazyScanState();
+    fenceLazyScanCache.set(doc, created);
+    return created;
 }
 
-function getFenceRangeAtLine(startByLine: Int32Array, endByLine: Int32Array, lineNumber: number): FenceRange | null {
-    const startLine = startByLine[lineNumber];
-    if (startLine === 0) return null;
-    return {
-        startLine,
-        endLine: endByLine[lineNumber],
-    };
+function scanFenceLine(
+    state: FenceLazyScanState,
+    lineNumber: number,
+    text: string
+): void {
+    if (isCodeFenceLine(text)) {
+        if (state.openCodeStartLine === 0) {
+            state.openCodeStartLine = lineNumber;
+        } else {
+            assignFenceRangeByLine(state.codeRangeByLine, state.openCodeStartLine, lineNumber);
+            state.openCodeStartLine = 0;
+        }
+    }
+
+    if (isMathFenceLine(text)) {
+        if (state.openMathStartLine === 0) {
+            if (isSingleLineMathFence(text)) {
+                assignFenceRangeByLine(state.mathRangeByLine, lineNumber, lineNumber);
+            } else {
+                state.openMathStartLine = lineNumber;
+            }
+        } else {
+            assignFenceRangeByLine(state.mathRangeByLine, state.openMathStartLine, lineNumber);
+            state.openMathStartLine = 0;
+        }
+    }
+}
+
+function finalizeFenceStateAtDocEnd(state: FenceLazyScanState): void {
+    if (state.openCodeStartLine !== 0) {
+        // Keep historical behavior for unclosed code fences.
+        assignFenceRangeByLine(state.codeRangeByLine, state.openCodeStartLine, state.openCodeStartLine);
+        state.openCodeStartLine = 0;
+    }
+    // Unclosed math fence intentionally remains unmatched.
+    state.openMathStartLine = 0;
+    state.fullyScanned = true;
+}
+
+function ensureFenceScanCoverage(doc: Text, targetLine: number): FenceLazyScanState {
+    const state = getFenceLazyScanState(doc);
+    if (state.fullyScanned) return state;
+
+    let cursor = state.scannedUntilLine + 1;
+    const boundedTarget = Math.max(1, Math.min(doc.lines, targetLine));
+    while (cursor <= doc.lines && cursor <= boundedTarget) {
+        scanFenceLine(state, cursor, doc.line(cursor).text);
+        cursor++;
+    }
+    state.scannedUntilLine = Math.max(state.scannedUntilLine, cursor - 1);
+
+    const needResolveOpenCode = state.openCodeStartLine !== 0 && boundedTarget >= state.openCodeStartLine;
+    const needResolveOpenMath = state.openMathStartLine !== 0 && boundedTarget >= state.openMathStartLine;
+    if (needResolveOpenCode || needResolveOpenMath) {
+        while (cursor <= doc.lines) {
+            scanFenceLine(state, cursor, doc.line(cursor).text);
+            cursor++;
+            const codeResolved = !needResolveOpenCode || state.openCodeStartLine === 0;
+            const mathResolved = !needResolveOpenMath || state.openMathStartLine === 0;
+            if (codeResolved && mathResolved) break;
+        }
+        state.scannedUntilLine = Math.max(state.scannedUntilLine, cursor - 1);
+    }
+
+    if (state.scannedUntilLine >= doc.lines) {
+        finalizeFenceStateAtDocEnd(state);
+    }
+    return state;
 }
 
 function findMathBlockRange(doc: Text, lineNumber: number): FenceRange | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const index = getFenceRangeIndex(doc);
-    return getFenceRangeAtLine(index.mathStartByLine, index.mathEndByLine, lineNumber);
+    const state = ensureFenceScanCoverage(doc, lineNumber);
+    return state.mathRangeByLine.get(lineNumber) ?? null;
 }
 
 function findCodeBlockRange(doc: Text, lineNumber: number): FenceRange | null {
     if (lineNumber < 1 || lineNumber > doc.lines) return null;
-    const index = getFenceRangeIndex(doc);
-    return getFenceRangeAtLine(index.codeStartByLine, index.codeEndByLine, lineNumber);
+    const state = ensureFenceScanCoverage(doc, lineNumber);
+    return state.codeRangeByLine.get(lineNumber) ?? null;
 }
 
 /**
@@ -469,11 +496,16 @@ function detectBlockUncached(state: EditorState, lineNumber: number, tabSize: nu
 
     // 列表项：包含其子项
     if (blockType === BlockType.ListItem) {
-        const lineMap = getLineMap(state, { tabSize });
-        const lineMeta = getLineMetaAt(lineMap, lineNumber);
-        const subtreeEndLine = lineMeta?.isList
+        let lineMap = peekCachedLineMap(state, { tabSize });
+        if (!lineMap && doc.lines <= LIST_LINE_MAP_COLD_BUILD_MAX_LINES) {
+            lineMap = getLineMap(state, { tabSize });
+        }
+
+        const lineMeta = lineMap ? getLineMetaAt(lineMap, lineNumber) : null;
+        const subtreeEndLine = lineMeta?.isList && lineMap
             ? lineMap.listSubtreeEndLine[lineNumber]
             : 0;
+
         if (subtreeEndLine >= lineNumber) {
             endLine = subtreeEndLine;
         } else {

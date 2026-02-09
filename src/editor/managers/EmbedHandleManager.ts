@@ -8,6 +8,9 @@ type EmbedHandleEntry = {
 };
 
 const HANDLE_SIZE_PX = 16;
+const EMBED_SCAN_DEBOUNCE_SMALL_MS = 120;
+const EMBED_SCAN_DEBOUNCE_MEDIUM_MS = 300;
+const EMBED_SCAN_DEBOUNCE_LARGE_MS = 700;
 
 export interface EmbedHandleManagerDeps {
     createHandleElement: (getBlockInfo: () => BlockInfo | null) => HTMLElement;
@@ -20,6 +23,7 @@ export class EmbedHandleManager {
     private observer: MutationObserver | null = null;
     private pendingScan = false;
     private rafId: number | null = null;
+    private debounceTimerId: number | null = null;
     private destroyed = false;
     private readonly onScrollOrResize = () => this.updateHandlePositions();
 
@@ -50,8 +54,16 @@ export class EmbedHandleManager {
         this.rescan();
     }
 
-    scheduleScan(): void {
+    scheduleScan(options?: { urgent?: boolean }): void {
         if (this.destroyed) return;
+        if (options?.urgent !== true) {
+            this.scheduleDebouncedScan();
+            return;
+        }
+        if (this.debounceTimerId !== null) {
+            window.clearTimeout(this.debounceTimerId);
+            this.debounceTimerId = null;
+        }
         if (this.pendingScan) return;
         this.pendingScan = true;
         this.rafId = requestAnimationFrame(() => {
@@ -119,6 +131,10 @@ export class EmbedHandleManager {
     destroy(): void {
         this.destroyed = true;
         this.pendingScan = false;
+        if (this.debounceTimerId !== null) {
+            window.clearTimeout(this.debounceTimerId);
+            this.debounceTimerId = null;
+        }
         if (this.rafId !== null) {
             cancelAnimationFrame(this.rafId);
             this.rafId = null;
@@ -134,6 +150,25 @@ export class EmbedHandleManager {
             this.cleanupHandle(embedEl, entry);
         }
         this.embedHandles.clear();
+    }
+
+    private scheduleDebouncedScan(): void {
+        if (this.debounceTimerId !== null) {
+            window.clearTimeout(this.debounceTimerId);
+            this.debounceTimerId = null;
+        }
+        const delayMs = this.getDebounceDelayMs();
+        this.debounceTimerId = window.setTimeout(() => {
+            this.debounceTimerId = null;
+            this.scheduleScan({ urgent: true });
+        }, delayMs);
+    }
+
+    private getDebounceDelayMs(): number {
+        const docLines = this.view.state.doc.lines;
+        if (docLines > 120_000) return EMBED_SCAN_DEBOUNCE_LARGE_MS;
+        if (docLines > 30_000) return EMBED_SCAN_DEBOUNCE_MEDIUM_MS;
+        return EMBED_SCAN_DEBOUNCE_SMALL_MS;
     }
 
     private cleanupHandle(_embedEl: HTMLElement, entry: EmbedHandleEntry): void {

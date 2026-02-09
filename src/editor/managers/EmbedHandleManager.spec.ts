@@ -30,6 +30,25 @@ afterEach(() => {
 });
 
 describe('EmbedHandleManager', () => {
+    it('debounces non-urgent scans', () => {
+        vi.useFakeTimers();
+        const view = createViewStub();
+        const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((_cb: FrameRequestCallback) => 7);
+        const manager = new EmbedHandleManager(view, {
+            createHandleElement: () => document.createElement('div'),
+            resolveBlockInfoForEmbed: () => null,
+        });
+
+        manager.scheduleScan();
+        manager.scheduleScan();
+        expect(rafSpy).toHaveBeenCalledTimes(0);
+        vi.runOnlyPendingTimers();
+        expect(rafSpy).toHaveBeenCalledTimes(1);
+
+        manager.destroy();
+        vi.useRealTimers();
+    });
+
     it('cancels scheduled RAF scan during destroy and ignores stale callback', () => {
         const view = createViewStub();
         let queued: FrameRequestCallback | null = null;
@@ -49,7 +68,7 @@ describe('EmbedHandleManager', () => {
         });
         const rescanSpy = vi.spyOn(manager, 'rescan');
 
-        manager.scheduleScan();
+        manager.scheduleScan({ urgent: true });
         expect(rafSpy).toHaveBeenCalledTimes(1);
         manager.destroy();
 

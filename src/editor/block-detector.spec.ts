@@ -2,6 +2,7 @@ import { EditorState } from '@codemirror/state';
 import { describe, expect, it } from 'vitest';
 import { BlockType } from '../types';
 import { detectBlock, getHeadingSectionRange } from './block-detector';
+import { peekCachedLineMap } from './core/line-map';
 
 function createState(doc: string): EditorState {
     return EditorState.create({ doc });
@@ -103,6 +104,30 @@ describe('block-detector', () => {
         expect(first).not.toBeNull();
         expect(second).not.toBeNull();
         expect(first).toBe(second);
+    });
+
+    it('avoids cold line-map build for large-doc list detection and keeps subtree result', () => {
+        const filler = Array.from({ length: 30_100 }, (_, i) => `plain ${i}`).join('\n');
+        const state = createState(`- parent\n  - child\noutside\n${filler}`);
+        expect(peekCachedLineMap(state)).toBeNull();
+
+        const block = detectBlock(state, 1);
+
+        expect(block).not.toBeNull();
+        expect(block?.type).toBe(BlockType.ListItem);
+        expect(block?.endLine).toBe(1);
+        expect(peekCachedLineMap(state)).toBeNull();
+    });
+
+    it('keeps eager line-map build on smaller docs for list detection', () => {
+        const state = createState('- parent\n  - child\noutside');
+        expect(peekCachedLineMap(state)).toBeNull();
+
+        const block = detectBlock(state, 1);
+
+        expect(block).not.toBeNull();
+        expect(block?.type).toBe(BlockType.ListItem);
+        expect(peekCachedLineMap(state)).not.toBeNull();
     });
 
     it('keeps unclosed fenced code behavior (only fence start line is code block)', () => {

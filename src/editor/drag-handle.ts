@@ -19,7 +19,11 @@ import {
 } from './core/table-guard';
 import { getPreviousNonEmptyLineNumber as getPreviousNonEmptyLineNumberInDoc } from './core/container-policies';
 import { createDragPerfSession, DragPerfSession, logDragPerfSession } from './core/perf-session';
-import { getLineMap, setLineMapPerfRecorder } from './core/line-map';
+import {
+    getLineMap,
+    primeLineMapFromTransition,
+    setLineMapPerfRecorder,
+} from './core/line-map';
 import { setDetectBlockPerfRecorder } from './block-detector';
 import { BlockMover } from './movers/BlockMover';
 import { DropIndicatorManager } from './managers/DropIndicatorManager';
@@ -43,6 +47,10 @@ import { getLineNumberElementForLine, hasVisibleLineNumberGutter } from './core/
 import { clampNumber, clampTargetLineNumber } from './utils/coordinate-utils';
 
 const HOVER_HIDDEN_LINE_NUMBER_CLASS = 'dnd-line-number-hover-hidden';
+const DOC_SEMANTIC_IDLE_SMALL_MS = 500;
+const DOC_SEMANTIC_IDLE_MEDIUM_MS = 900;
+const DOC_SEMANTIC_IDLE_LARGE_MS = 1400;
+const HANDLE_INTERACTION_ZONE_PX = 64;
 
 /**
  * 创建拖拽手柄ViewPlugin
@@ -68,6 +76,16 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             private activeVisibleHandle: HTMLElement | null = null;
             private lastLifecycleSignature: string | null = null;
             private dragPerfSession: DragPerfSession | null = null;
+            private lineMapPrewarmIdleHandle: number | null = null;
+            private lineMapPrewarmTimerHandle: number | null = null;
+            private pendingLineMapPrewarm: {
+                previousState: any;
+                nextState: any;
+                changes: any;
+                docLines: number;
+            } | null = null;
+            private semanticRefreshTimerHandle: number | null = null;
+            private pendingSemanticRefresh = false;
             private readonly onDocumentPointerMove = (e: PointerEvent) => this.handleDocumentPointerMove(e);
 
             constructor(view: EditorView) {
@@ -197,9 +215,15 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             }
 
             update(update: ViewUpdate) {
-                if (update.docChanged || update.viewportChanged || update.geometryChanged) {
-                    this.decorations = this.decorationManager.buildDecorations();
-                    this.embedHandleManager.scheduleScan();
+                if (update.docChanged) {
+                    // Keep typing path light: remap existing handles and defer semantic refresh.
+                    this.decorations = this.decorations.map(update.changes);
+                    this.markSemanticRefreshPending();
+                    this.scheduleLineMapPrewarm(update);
+                }
+                const shouldForceRebuild = update.viewportChanged || (update.geometryChanged && !update.docChanged);
+                if (shouldForceRebuild) {
+                    this.refreshDecorationsAndEmbeds();
                 }
                 if (this.activeVisibleHandle && !this.activeVisibleHandle.isConnected) {
                     this.setActiveVisibleHandle(null);
@@ -208,6 +232,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             createHandleElement(getBlockInfo: () => BlockInfo | null): HTMLElement {
                 const handle = createDragHandleElement({
                     onDragStart: (e, el) => {
+                        this.ensureSemanticReadyForInteraction();
                         this.setActiveVisibleHandle(el);
                         const sourceBlock = getBlockInfo();
                         const started = startDragFromHandle(e, this.view, () => sourceBlock ?? getBlockInfo(), el);
@@ -258,6 +283,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     },
                 });
                 handle.addEventListener('pointerdown', (e: PointerEvent) => {
+                    this.ensureSemanticReadyForInteraction();
                     const blockInfo = getBlockInfo();
                     this.setActiveVisibleHandle(handle);
                     if (blockInfo) {
@@ -324,6 +350,8 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             }
 
             destroy(): void {
+                this.clearPendingLineMapPrewarm();
+                this.clearPendingSemanticRefresh();
                 document.removeEventListener('pointermove', this.onDocumentPointerMove);
                 this.setActiveVisibleHandle(null);
                 finishDragSession(this.view);
@@ -350,6 +378,9 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 if (document.body.classList.contains('dnd-dragging')) {
                     this.setActiveVisibleHandle(null, { preserveHoveredLineNumber: true });
                     return;
+                }
+                if (this.pendingSemanticRefresh && this.isPointerInHandleInteractionZone(e.clientX, e.clientY)) {
+                    this.ensureSemanticReadyForInteraction();
                 }
 
                 const directHandle = this.resolveVisibleHandleFromTarget(e.target);
@@ -469,6 +500,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             }
 
             private ensureDragPerfSession(): void {
+                this.ensureSemanticReadyForInteraction();
                 if (this.dragPerfSession) return;
                 this.dragPerfSession = createDragPerfSession({
                     docLines: this.view.state.doc.lines,
@@ -490,6 +522,145 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 }
                 setLineMapPerfRecorder(null);
                 setDetectBlockPerfRecorder(null);
+            }
+
+            private scheduleLineMapPrewarm(update: ViewUpdate): void {
+                const nextState = this.view.state as any;
+                const docLines = nextState?.doc?.lines ?? 0;
+                if (docLines > 30_000) {
+                    // On very large docs, background prewarm can still cause visible typing hitches.
+                    // We warm line-map lazily at drag start instead.
+                    this.clearPendingLineMapPrewarm();
+                    return;
+                }
+                this.pendingLineMapPrewarm = {
+                    previousState: update.startState as any,
+                    nextState,
+                    changes: update.changes as any,
+                    docLines,
+                };
+                if (this.lineMapPrewarmIdleHandle !== null) {
+                    const cancelIdle = (window as any).cancelIdleCallback as
+                        | ((id: number) => void)
+                        | undefined;
+                    if (typeof cancelIdle === 'function') {
+                        cancelIdle(this.lineMapPrewarmIdleHandle);
+                    }
+                    this.lineMapPrewarmIdleHandle = null;
+                }
+                if (this.lineMapPrewarmTimerHandle !== null) {
+                    window.clearTimeout(this.lineMapPrewarmTimerHandle);
+                }
+
+                const isLargeDoc = docLines > 30_000;
+                const debounceMs = isLargeDoc ? 1200 : 250;
+                this.lineMapPrewarmTimerHandle = window.setTimeout(() => {
+                    this.lineMapPrewarmTimerHandle = null;
+                    this.enqueueLineMapPrewarmIdleTask();
+                }, debounceMs);
+            }
+
+            private enqueueLineMapPrewarmIdleTask(): void {
+                const pending = this.pendingLineMapPrewarm;
+                if (!pending) return;
+                const run = () => {
+                    this.lineMapPrewarmIdleHandle = null;
+                    const latest = this.pendingLineMapPrewarm;
+                    this.pendingLineMapPrewarm = null;
+                    if (!latest) return;
+                    try {
+                        primeLineMapFromTransition({
+                            previousState: latest.previousState,
+                            nextState: latest.nextState,
+                            changes: latest.changes,
+                        });
+                    } catch {
+                        getLineMap(latest.nextState);
+                    }
+                };
+                const requestIdle = (window as any).requestIdleCallback as
+                    | ((cb: () => void, options?: { timeout?: number }) => number)
+                    | undefined;
+                if (typeof requestIdle === 'function') {
+                    if (pending.docLines > 30_000) {
+                        this.lineMapPrewarmIdleHandle = requestIdle(run);
+                    } else {
+                        this.lineMapPrewarmIdleHandle = requestIdle(run, { timeout: 200 });
+                    }
+                    return;
+                }
+                this.lineMapPrewarmTimerHandle = window.setTimeout(() => {
+                    this.lineMapPrewarmTimerHandle = null;
+                    run();
+                }, pending.docLines > 30_000 ? 250 : 16);
+            }
+
+            private clearPendingLineMapPrewarm(): void {
+                if (this.lineMapPrewarmIdleHandle !== null) {
+                    const cancelIdle = (window as any).cancelIdleCallback as
+                        | ((id: number) => void)
+                        | undefined;
+                    if (typeof cancelIdle === 'function') {
+                        cancelIdle(this.lineMapPrewarmIdleHandle);
+                    }
+                    this.lineMapPrewarmIdleHandle = null;
+                }
+                if (this.lineMapPrewarmTimerHandle !== null) {
+                    window.clearTimeout(this.lineMapPrewarmTimerHandle);
+                    this.lineMapPrewarmTimerHandle = null;
+                }
+                this.pendingLineMapPrewarm = null;
+            }
+
+            private refreshDecorationsAndEmbeds(): void {
+                this.clearPendingSemanticRefresh();
+                this.decorations = this.decorationManager.buildDecorations();
+                this.embedHandleManager.scheduleScan({ urgent: true });
+            }
+
+            private markSemanticRefreshPending(): void {
+                this.pendingSemanticRefresh = true;
+                if (this.semanticRefreshTimerHandle !== null) {
+                    window.clearTimeout(this.semanticRefreshTimerHandle);
+                    this.semanticRefreshTimerHandle = null;
+                }
+                const delayMs = this.getSemanticRefreshDelayMs(this.view.state.doc.lines);
+                this.semanticRefreshTimerHandle = window.setTimeout(() => {
+                    this.semanticRefreshTimerHandle = null;
+                    if (document.body.classList.contains('dnd-dragging')) {
+                        this.markSemanticRefreshPending();
+                        return;
+                    }
+                    if (!this.pendingSemanticRefresh) return;
+                    this.refreshDecorationsAndEmbeds();
+                }, delayMs);
+            }
+
+            private ensureSemanticReadyForInteraction(): void {
+                if (!this.pendingSemanticRefresh) return;
+                this.refreshDecorationsAndEmbeds();
+            }
+
+            private clearPendingSemanticRefresh(): void {
+                this.pendingSemanticRefresh = false;
+                if (this.semanticRefreshTimerHandle !== null) {
+                    window.clearTimeout(this.semanticRefreshTimerHandle);
+                    this.semanticRefreshTimerHandle = null;
+                }
+            }
+
+            private getSemanticRefreshDelayMs(docLines: number): number {
+                if (docLines > 120_000) return DOC_SEMANTIC_IDLE_LARGE_MS;
+                if (docLines > 30_000) return DOC_SEMANTIC_IDLE_MEDIUM_MS;
+                return DOC_SEMANTIC_IDLE_SMALL_MS;
+            }
+
+            private isPointerInHandleInteractionZone(clientX: number, clientY: number): boolean {
+                const contentRect = this.view.contentDOM.getBoundingClientRect();
+                if (clientY < contentRect.top || clientY > contentRect.bottom) return false;
+                const leftBound = contentRect.left - HANDLE_INTERACTION_ZONE_PX;
+                const rightBound = contentRect.left + HANDLE_INTERACTION_ZONE_PX;
+                return clientX >= leftBound && clientX <= rightBound;
             }
 
             private resolveVisibleHandleFromTarget(target: EventTarget | null): HTMLElement | null {
