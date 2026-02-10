@@ -41,8 +41,6 @@ function createDeps(overrides?: Partial<DropTargetCalculatorDeps>): DropTargetCa
     return {
         parseLineWithQuote: (line) => parseLineWithQuote(line, 4),
         getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
-        clampTargetLineNumber: (_total, lineNumber) => lineNumber,
-        getPreviousNonEmptyLineNumber: (_doc, lineNumber) => (lineNumber >= 1 ? lineNumber : null),
         resolveDropRuleAtInsertion: () => ({
             slotContext: 'outside',
             decision: { allowDrop: true },
@@ -55,7 +53,6 @@ function createDeps(overrides?: Partial<DropTargetCalculatorDeps>): DropTargetCa
         getInsertionAnchorY: () => 12,
         getLineIndentPosByWidth: () => null,
         getBlockRect: () => ({ top: 0, left: 0, width: 100, height: 20 }),
-        clampNumber: (value, min, max) => Math.max(min, Math.min(max, value)),
         onDragTargetEvaluated: () => { },
         ...overrides,
     };

@@ -12,28 +12,28 @@ import { isPosInsideRenderedTableCell } from '../core/table-guard';
 import { DRAGGING_BODY_CLASS, DRAG_GHOST_CLASS, DRAG_SOURCE_LINE_NUMBER_CLASS } from '../core/selectors';
 
 const sourceLineMarkerByView = new WeakMap<EditorView, HTMLElement>();
-const draggingViews = new Set<EditorView>();
+const draggingViewRefs = new Set<WeakRef<EditorView>>();
 
 export function beginDragSession(blockInfo: BlockInfo, view: EditorView): void {
     updateSourceLineNumberMarker(blockInfo.startLine + 1, view);
     setActiveDragSourceBlock(view, blockInfo);
-    draggingViews.add(view);
-    if (draggingViews.size > 0) {
-        document.body.classList.add(DRAGGING_BODY_CLASS);
-    }
+    draggingViewRefs.add(new WeakRef(view));
+    document.body.classList.add(DRAGGING_BODY_CLASS);
 }
 
 export function finishDragSession(view?: EditorView): void {
     if (view) {
         finishDragSessionForView(view);
     } else {
-        for (const activeView of Array.from(draggingViews)) {
-            finishDragSessionForView(activeView);
+        for (const ref of Array.from(draggingViewRefs)) {
+            const v = ref.deref();
+            if (v) finishDragSessionForView(v);
+            draggingViewRefs.delete(ref);
         }
         clearAllActiveDragSourceBlocks();
     }
 
-    if (draggingViews.size === 0) {
+    if (draggingViewRefs.size === 0) {
         document.body.classList.remove(DRAGGING_BODY_CLASS);
     }
     hideDropVisuals();
@@ -98,7 +98,16 @@ function startDragWithBlockInfo(
 function finishDragSessionForView(view: EditorView): void {
     clearSourceLineNumberMarker(view);
     clearActiveDragSourceBlock(view);
-    draggingViews.delete(view);
+    removeDraggingViewRef(view);
+}
+
+function removeDraggingViewRef(target: EditorView): void {
+    for (const ref of draggingViewRefs) {
+        const v = ref.deref();
+        if (!v || v === target) {
+            draggingViewRefs.delete(ref);
+        }
+    }
 }
 
 function updateSourceLineNumberMarker(lineNumber: number, view: EditorView): void {

@@ -5,7 +5,6 @@ export class PointerSessionController {
     private touchBlockerAttached = false;
     private pointerCaptureTarget: Element | null = null;
     private capturedPointerId: number | null = null;
-    private readonly handledPointerEvents = new WeakSet<Event>();
 
     private readonly onPointerMove: (e: PointerEvent) => void;
     private readonly onPointerUp: (e: PointerEvent) => void;
@@ -33,17 +32,8 @@ export class PointerSessionController {
         this.onTouchMove = handlers.onTouchMove;
     }
 
-    shouldIgnoreDuplicatePointerEvent(e: PointerEvent): boolean {
-        if (this.handledPointerEvents.has(e)) return true;
-        this.handledPointerEvents.add(e);
-        return false;
-    }
-
     attachPointerListeners(): void {
         if (this.pointerListenersAttached) return;
-        document.addEventListener('pointermove', this.onPointerMove, { passive: false });
-        document.addEventListener('pointerup', this.onPointerUp, { passive: false });
-        document.addEventListener('pointercancel', this.onPointerCancel, { passive: false });
         window.addEventListener('pointermove', this.onPointerMove, { passive: false, capture: true });
         window.addEventListener('pointerup', this.onPointerUp, { passive: false, capture: true });
         window.addEventListener('pointercancel', this.onPointerCancel, { passive: false, capture: true });
@@ -55,9 +45,6 @@ export class PointerSessionController {
 
     detachPointerListeners(): void {
         if (!this.pointerListenersAttached) return;
-        document.removeEventListener('pointermove', this.onPointerMove);
-        document.removeEventListener('pointerup', this.onPointerUp);
-        document.removeEventListener('pointercancel', this.onPointerCancel);
         window.removeEventListener('pointermove', this.onPointerMove, true);
         window.removeEventListener('pointerup', this.onPointerUp, true);
         window.removeEventListener('pointercancel', this.onPointerCancel, true);

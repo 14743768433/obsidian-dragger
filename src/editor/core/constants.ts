@@ -25,15 +25,28 @@ export const HANDLE_INTERACTION_ZONE_PX = 64;
 
 /**
  * Handle visual constants
+ *
+ * Centralised mutable config – set once per plugin load via `applySettings()`.
  */
-let handleSizePx = 16;
+const handleConfig = {
+    sizePx: 16,
+    horizontalOffsetPx: 0,
+};
 
 export function getHandleSizePx(): number {
-    return handleSizePx;
+    return handleConfig.sizePx;
 }
 
 export function setHandleSizePx(size: number): void {
-    handleSizePx = Math.max(12, Math.min(28, size));
+    handleConfig.sizePx = Math.max(12, Math.min(28, size));
+}
+
+export function getHandleHorizontalOffsetPx(): number {
+    return handleConfig.horizontalOffsetPx;
+}
+
+export function setHandleHorizontalOffsetPx(offsetPx: number): void {
+    handleConfig.horizontalOffsetPx = Number.isFinite(offsetPx) ? offsetPx : 0;
 }
 
 /**

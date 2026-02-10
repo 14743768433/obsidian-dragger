@@ -12,6 +12,8 @@ import { DocLike, DropTargetInfo, ListContext, ParsedLine } from '../core/protoc
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 import { isPointInsideRenderedTableCell } from '../core/table-guard';
 import { ListDropTargetCalculator } from './ListDropTargetCalculator';
+import { clampNumber, clampTargetLineNumber } from '../utils/coordinate-utils';
+import { getPreviousNonEmptyLineNumber } from '../core/container-policies';
 
 type PerfDurationKey =
     | 'resolve_total'
@@ -27,8 +29,6 @@ export interface DropTargetCalculatorDeps {
         lineNumber: number,
         options?: { clientY?: number; frameCache?: GeometryFrameCache }
     ) => { lineNumber: number; blockAdjusted: boolean };
-    clampTargetLineNumber: (totalLines: number, lineNumber: number) => number;
-    getPreviousNonEmptyLineNumber: (doc: DocLike, lineNumber: number) => number | null;
     resolveDropRuleAtInsertion: (
         sourceBlock: BlockInfo,
         targetLineNumber: number,
@@ -49,7 +49,6 @@ export interface DropTargetCalculatorDeps {
         endLineNumber: number,
         frameCache?: GeometryFrameCache
     ) => { top: number; left: number; width: number; height: number } | undefined;
-    clampNumber: (value: number, min: number, max: number) => number;
     onDragTargetEvaluated?: (info: {
         sourceBlock: BlockInfo | null;
         pointerType: string | null;
@@ -102,7 +101,7 @@ export class DropTargetCalculator {
     ) {
         this.listDropTargetCalculator = new ListDropTargetCalculator(this.view, {
             parseLineWithQuote: this.deps.parseLineWithQuote,
-            getPreviousNonEmptyLineNumber: this.deps.getPreviousNonEmptyLineNumber,
+            getPreviousNonEmptyLineNumber,
             getIndentUnitWidthForDoc: this.deps.getIndentUnitWidthForDoc,
             getBlockRect: this.deps.getBlockRect,
             incrementPerfCounter: this.deps.incrementPerfCounter,
@@ -190,7 +189,7 @@ export class DropTargetCalculator {
             if (block) {
                 const rect = embedEl.getBoundingClientRect();
                 const showAtBottom = info.clientY > rect.top + rect.height / 2;
-                const lineNumber = this.deps.clampTargetLineNumber(
+                const lineNumber = clampTargetLineNumber(
                     this.view.state.doc.lines,
                     showAtBottom ? block.endLine + 2 : block.startLine + 1
                 );
@@ -353,7 +352,7 @@ export class DropTargetCalculator {
         lineRectSourceLineNumber: number;
     } | null {
         const contentRect = this.view.contentDOM.getBoundingClientRect();
-        const x = this.deps.clampNumber(info.clientX, contentRect.left + 2, contentRect.right - 2);
+        const x = clampNumber(info.clientX, contentRect.left + 2, contentRect.right - 2);
         let pos: number | null = null;
         try {
             pos = this.view.posAtCoords({ x, y: info.clientY });
@@ -393,12 +392,12 @@ export class DropTargetCalculator {
             }
         }
 
-        let targetLineNumber = this.deps.clampTargetLineNumber(
+        let targetLineNumber = clampTargetLineNumber(
             this.view.state.doc.lines,
             forcedLineNumber ?? (showAtBottom ? line.number + 1 : line.number)
         );
         if (!forcedLineNumber && childIntentOnLine && !showAtBottom) {
-            targetLineNumber = this.deps.clampTargetLineNumber(this.view.state.doc.lines, line.number + 1);
+            targetLineNumber = clampTargetLineNumber(this.view.state.doc.lines, line.number + 1);
         }
 
         return {

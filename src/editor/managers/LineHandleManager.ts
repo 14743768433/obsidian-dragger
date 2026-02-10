@@ -22,6 +22,7 @@ export interface LineHandleManagerDeps {
 
 export class LineHandleManager {
     private readonly lineHandles = new Map<number, LineHandleEntry>();
+    private readonly handleSet = new Set<HTMLElement>();
     private pendingScan = false;
     private rafId: number | null = null;
     private destroyed = false;
@@ -100,6 +101,7 @@ export class LineHandleManager {
                         this.view.dom.appendChild(handle);
                         entry = { handle, lineNumber: handleLineNumber };
                         this.lineHandles.set(handleLineNumber, entry);
+                        this.handleSet.add(handle);
                     }
 
                     // Always update attributes with fresh block info
@@ -135,6 +137,7 @@ export class LineHandleManager {
         // Remove handles for lines no longer in view
         for (const [lineNum, entry] of this.lineHandles.entries()) {
             if (!handledLineNumbers.has(lineNum)) {
+                this.handleSet.delete(entry.handle);
                 entry.handle.remove();
                 this.lineHandles.delete(lineNum);
             }
@@ -159,13 +162,11 @@ export class LineHandleManager {
             entry.handle.remove();
         }
         this.lineHandles.clear();
+        this.handleSet.clear();
     }
 
     isManagedHandle(handle: HTMLElement): boolean {
-        for (const entry of this.lineHandles.values()) {
-            if (entry.handle === handle) return true;
-        }
-        return false;
+        return this.handleSet.has(handle);
     }
 
     private positionHandle(handle: HTMLElement, lineNumber: number): void {

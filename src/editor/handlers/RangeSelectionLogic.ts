@@ -1,12 +1,9 @@
 import { EditorView } from '@codemirror/view';
-import { BlockInfo } from '../../types';
+import { BlockInfo, LineRange } from '../../types';
 import { detectBlock } from '../core/block-detector';
 import { EMBED_BLOCK_SELECTOR } from '../core/selectors';
 
-export type LineRange = {
-    startLineNumber: number;
-    endLineNumber: number;
-};
+export type { LineRange };
 
 export type RangeSelectionBoundary = {
     startLineNumber: number;

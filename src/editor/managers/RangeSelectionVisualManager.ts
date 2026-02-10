@@ -1,4 +1,5 @@
 import { EditorView } from '@codemirror/view';
+import { LineRange } from '../../types';
 import {
     getHandleColumnCenterX,
     getLineNumberElementForLine,
@@ -15,11 +16,6 @@ import {
 import { GRAB_HIDDEN_LINE_NUMBER_CLASS } from '../core/constants';
 
 const RANGE_SELECTED_LINE_NUMBER_HIDDEN_CLASS = GRAB_HIDDEN_LINE_NUMBER_CLASS;
-
-export type LineRange = {
-    startLineNumber: number;
-    endLineNumber: number;
-};
 
 export class RangeSelectionVisualManager {
     private readonly lineElements = new Set<HTMLElement>();

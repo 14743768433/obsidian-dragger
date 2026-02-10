@@ -41,6 +41,11 @@ export interface BlockInfo {
     };
 }
 
+export type LineRange = {
+    startLineNumber: number;
+    endLineNumber: number;
+};
+
 export type DragLifecycleState =
     | 'idle'
     | 'press_pending'

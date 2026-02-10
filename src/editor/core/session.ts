@@ -3,16 +3,16 @@ import { BlockInfo } from '../../types';
 import { DROP_HIGHLIGHT_SELECTOR, DROP_INDICATOR_SELECTOR } from './selectors';
 
 const activeDragSourceByView = new WeakMap<EditorView, BlockInfo | null>();
-const knownViews = new Set<EditorView>();
+const knownViewRefs = new Set<WeakRef<EditorView>>();
 
 export function setActiveDragSourceBlock(view: EditorView, block: BlockInfo | null): void {
     if (block) {
         activeDragSourceByView.set(view, block);
-        knownViews.add(view);
+        knownViewRefs.add(new WeakRef(view));
         return;
     }
     activeDragSourceByView.delete(view);
-    knownViews.delete(view);
+    removeWeakRef(knownViewRefs, view);
 }
 
 export function getActiveDragSourceBlock(view?: EditorView): BlockInfo | null {
@@ -20,8 +20,13 @@ export function getActiveDragSourceBlock(view?: EditorView): BlockInfo | null {
         return activeDragSourceByView.get(view) ?? null;
     }
 
-    for (const knownView of knownViews) {
-        const block = activeDragSourceByView.get(knownView);
+    for (const ref of knownViewRefs) {
+        const v = ref.deref();
+        if (!v) {
+            knownViewRefs.delete(ref);
+            continue;
+        }
+        const block = activeDragSourceByView.get(v);
         if (block) return block;
     }
     return null;
@@ -29,14 +34,24 @@ export function getActiveDragSourceBlock(view?: EditorView): BlockInfo | null {
 
 export function clearActiveDragSourceBlock(view: EditorView): void {
     activeDragSourceByView.delete(view);
-    knownViews.delete(view);
+    removeWeakRef(knownViewRefs, view);
 }
 
 export function clearAllActiveDragSourceBlocks(): void {
-    for (const knownView of Array.from(knownViews)) {
-        activeDragSourceByView.delete(knownView);
+    for (const ref of knownViewRefs) {
+        const v = ref.deref();
+        if (v) activeDragSourceByView.delete(v);
     }
-    knownViews.clear();
+    knownViewRefs.clear();
+}
+
+function removeWeakRef(set: Set<WeakRef<EditorView>>, target: EditorView): void {
+    for (const ref of set) {
+        const v = ref.deref();
+        if (!v || v === target) {
+            set.delete(ref);
+        }
+    }
 }
 
 export function hideDropVisuals(scope: ParentNode = document): void {

@@ -6,8 +6,6 @@ import { TextMutationPolicy } from './TextMutationPolicy';
 import { DragSourceResolver } from './DragSourceResolver';
 import { DropTargetCalculatorDeps } from '../handlers/DropTargetCalculator';
 import { BlockMoverDeps } from '../movers/BlockMover';
-import { clampNumber, clampTargetLineNumber } from '../utils/coordinate-utils';
-import { getPreviousNonEmptyLineNumber } from './container-policies';
 
 /**
  * Groups the stateless/low-state core services that many subsystems depend on.
@@ -34,8 +32,6 @@ export class ServiceContainer {
         return {
             parseLineWithQuote: (line) => this.textMutation.parseLineWithQuote(line),
             getAdjustedTargetLocation: (ln, opts) => this.geometry.getAdjustedTargetLocation(ln, opts),
-            clampTargetLineNumber,
-            getPreviousNonEmptyLineNumber: (doc, ln) => getPreviousNonEmptyLineNumber(doc, ln),
             resolveDropRuleAtInsertion: (src, ln, opts) => this.containerPolicy.resolveDropRuleAtInsertion(src, ln, opts),
             getListContext: (doc, ln) => this.textMutation.getListContext(doc, ln),
             getIndentUnitWidth: (sample) => this.textMutation.getIndentUnitWidth(sample),
@@ -45,14 +41,12 @@ export class ServiceContainer {
             getInsertionAnchorY: (ln, fc) => this.geometry.getInsertionAnchorY(ln, fc),
             getLineIndentPosByWidth: (ln, w) => this.geometry.getLineIndentPosByWidth(ln, w),
             getBlockRect: (s, e, fc) => this.geometry.getBlockRect(s, e, fc),
-            clampNumber,
             ...hooks,
         };
     }
 
     buildBlockMoverDeps(): Omit<BlockMoverDeps, 'view'> {
         return {
-            clampTargetLineNumber,
             getAdjustedTargetLocation: (ln, opts) => this.geometry.getAdjustedTargetLocation(ln, opts),
             resolveDropRuleAtInsertion: (src, ln, opts) => this.containerPolicy.resolveDropRuleAtInsertion(src, ln, opts),
             parseLineWithQuote: (line) => this.textMutation.parseLineWithQuote(line),

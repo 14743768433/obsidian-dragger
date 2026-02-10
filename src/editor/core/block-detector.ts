@@ -11,6 +11,14 @@ import { splitBlockquotePrefix, getBlockquoteDepthFromLine } from './line-parsin
 import { findCodeBlockRange, findMathBlockRange, FenceRange } from './fence-scanner';
 export { prewarmFenceScan } from './fence-scanner';
 
+const LIST_UNORDERED_RE = /^[-*+]\s/;
+const LIST_ORDERED_RE = /^\d+\.\s/;
+const LIST_TASK_RE = /^[-*+]\s\[[ x]\]/;
+const CODE_FENCE_RE = /^```/;
+const MATH_FENCE_RE = /^\$\$/;
+const BLOCKQUOTE_RE = /^>/;
+const TABLE_RE = /^\|/;
+
 export function getHeadingLevel(lineText: string): number | null {
     const trimmed = lineText.trimStart();
     const match = trimmed.match(/^(#{1,6})\s+/);
@@ -53,27 +61,27 @@ export function detectBlockType(lineText: string): BlockType {
     }
 
     // 列表项（无序列表、有序列表、任务列表）
-    if (/^[-*+]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed) || /^[-*+]\s\[[ x]\]/.test(trimmed)) {
+    if (LIST_UNORDERED_RE.test(trimmed) || LIST_ORDERED_RE.test(trimmed) || LIST_TASK_RE.test(trimmed)) {
         return BlockType.ListItem;
     }
 
     // 代码块开始
-    if (/^```/.test(trimmed)) {
+    if (CODE_FENCE_RE.test(trimmed)) {
         return BlockType.CodeBlock;
     }
 
     // 数学块（$$）
-    if (/^\$\$/.test(trimmed)) {
+    if (MATH_FENCE_RE.test(trimmed)) {
         return BlockType.MathBlock;
     }
 
     // 引用块
-    if (/^>/.test(trimmed)) {
+    if (BLOCKQUOTE_RE.test(trimmed)) {
         return BlockType.Blockquote;
     }
 
     // 表格（以|开头）
-    if (/^\|/.test(trimmed)) {
+    if (TABLE_RE.test(trimmed)) {
         return BlockType.Table;
     }
 

@@ -29,6 +29,7 @@ export interface EmbedHandleManagerDeps {
 
 export class EmbedHandleManager {
     private readonly embedHandles = new Map<HTMLElement, EmbedHandleEntry>();
+    private readonly handleSet = new Set<HTMLElement>();
     private observer: MutationObserver | null = null;
     private pendingScan = false;
     private rafId: number | null = null;
@@ -124,6 +125,7 @@ export class EmbedHandleManager {
 
                 entry = { handle };
                 this.embedHandles.set(embedEl, entry);
+                this.handleSet.add(handle);
             }
 
             entry.handle.setAttribute('data-block-start', String(block.startLine));
@@ -191,14 +193,12 @@ export class EmbedHandleManager {
     }
 
     private cleanupHandle(_embedEl: HTMLElement, entry: EmbedHandleEntry): void {
+        this.handleSet.delete(entry.handle);
         entry.handle.remove();
     }
 
     isManagedHandle(handle: HTMLElement): boolean {
-        for (const entry of this.embedHandles.values()) {
-            if (entry.handle === handle) return true;
-        }
-        return false;
+        return this.handleSet.has(handle);
     }
 
     private hasInlineHandleForBlockStart(blockStartLine: number): boolean {

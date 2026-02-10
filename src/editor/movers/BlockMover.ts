@@ -5,10 +5,10 @@ import { getLineMap, LineMap } from '../core/line-map';
 import { InsertionSlotContext } from '../core/insertion-rule-matrix';
 import { DocLike, DocLikeWithRange, ListContext, ParsedLine } from '../core/protocol-types';
 import { ListRenumberer } from './ListRenumberer';
+import { clampTargetLineNumber } from '../utils/coordinate-utils';
 
 export interface BlockMoverDeps {
     view: EditorView;
-    clampTargetLineNumber: (totalLines: number, lineNumber: number) => number;
     getAdjustedTargetLocation: (lineNumber: number, options?: { clientY?: number }) => { lineNumber: number; blockAdjusted: boolean };
     resolveDropRuleAtInsertion: (
         sourceBlock: BlockInfo,
@@ -78,7 +78,7 @@ export class BlockMover {
             }
         }
 
-        targetLineNumber = this.deps.clampTargetLineNumber(doc.lines, targetLineNumber);
+        targetLineNumber = clampTargetLineNumber(doc.lines, targetLineNumber);
         const lineMap = getLineMap(view.state as any);
         const containerRule = this.deps.resolveDropRuleAtInsertion(
             sourceBlock,
@@ -177,7 +177,7 @@ export class BlockMover {
                 targetLineNumber = adjusted.lineNumber;
             }
         }
-        targetLineNumber = this.deps.clampTargetLineNumber(doc.lines, targetLineNumber);
+        targetLineNumber = clampTargetLineNumber(doc.lines, targetLineNumber);
 
         const lineMap = getLineMap(view.state as any);
         const containerRule = this.deps.resolveDropRuleAtInsertion(

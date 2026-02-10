@@ -35,10 +35,48 @@ export interface InsertionRuleDecision {
     rejectReason: InsertionRuleRejectReason | null;
 }
 
-function isQuoteLikeType(type: BlockType): boolean {
-    return type === BlockType.Blockquote || type === BlockType.Callout;
+type RuleKey = `${BlockType}|${InsertionSlotContext}`;
+
+const ALL_TYPES = Object.values(BlockType) as BlockType[];
+
+function rejectEntries(
+    types: BlockType[],
+    slot: InsertionSlotContext,
+    reason: InsertionRuleRejectReason
+): [RuleKey, InsertionRuleRejectReason][] {
+    return types.map((t) => [`${t}|${slot}` as RuleKey, reason]);
 }
 
+const REJECT_RULES: ReadonlyMap<RuleKey, InsertionRuleRejectReason> = new Map<RuleKey, InsertionRuleRejectReason>([
+    // inside_list: only ListItem allowed
+    ...rejectEntries(
+        ALL_TYPES.filter((t) => t !== BlockType.ListItem),
+        'inside_list',
+        'inside_list'
+    ),
+
+    // inside_quote_run: only Blockquote allowed (not Callout)
+    ...rejectEntries(
+        ALL_TYPES.filter((t) => t !== BlockType.Blockquote),
+        'inside_quote_run',
+        'inside_quote_run'
+    ),
+
+    // quote_before: Callout blocked
+    [`${BlockType.Callout}|quote_before` as RuleKey, 'quote_boundary'],
+
+    // quote_after: only Blockquote allowed
+    ...rejectEntries(
+        ALL_TYPES.filter((t) => t !== BlockType.Blockquote),
+        'quote_after',
+        'quote_boundary'
+    ),
+
+    // callout_after, table_before, hr_before: block ALL source types
+    ...rejectEntries(ALL_TYPES, 'callout_after', 'callout_after'),
+    ...rejectEntries(ALL_TYPES, 'table_before', 'table_before'),
+    ...rejectEntries(ALL_TYPES, 'hr_before', 'hr_before'),
+]);
 
 export function inferSlotContextFromAdjacentLines(input: {
     prevText: string | null;
@@ -80,52 +118,10 @@ export function inferSlotContextFromAdjacentLines(input: {
 }
 
 export function resolveInsertionRule(input: InsertionRuleInput): InsertionRuleDecision {
-    const decision: InsertionRuleDecision = {
-        allowDrop: true,
-        rejectReason: null,
+    const key: RuleKey = `${input.sourceType}|${input.slotContext}`;
+    const rejectReason = REJECT_RULES.get(key) ?? null;
+    return {
+        allowDrop: rejectReason === null,
+        rejectReason,
     };
-    const sourceIsQuoteLike = isQuoteLikeType(input.sourceType);
-
-    if (input.slotContext === 'inside_list' && input.sourceType !== BlockType.ListItem) {
-        decision.allowDrop = false;
-        decision.rejectReason = 'inside_list';
-    }
-
-    if (
-        input.slotContext === 'inside_quote_run'
-        && (!sourceIsQuoteLike || input.sourceType === BlockType.Callout)
-    ) {
-        decision.allowDrop = false;
-        decision.rejectReason = 'inside_quote_run';
-    }
-
-    if (
-        (input.slotContext === 'quote_before' || input.slotContext === 'quote_after')
-        && input.sourceType === BlockType.Callout
-    ) {
-        decision.allowDrop = false;
-        decision.rejectReason = 'quote_boundary';
-    }
-
-    if (input.slotContext === 'quote_after' && input.sourceType !== BlockType.Blockquote) {
-        decision.allowDrop = false;
-        decision.rejectReason = 'quote_boundary';
-    }
-
-    if (input.slotContext === 'callout_after') {
-        decision.allowDrop = false;
-        decision.rejectReason = 'callout_after';
-    }
-
-    if (input.slotContext === 'table_before') {
-        decision.allowDrop = false;
-        decision.rejectReason = 'table_before';
-    }
-
-    if (input.slotContext === 'hr_before') {
-        decision.allowDrop = false;
-        decision.rejectReason = 'hr_before';
-    }
-
-    return decision;
 }

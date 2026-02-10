@@ -1,8 +1,7 @@
 import { EditorView } from '@codemirror/view';
-import { getHandleSizePx } from './constants';
+import { getHandleSizePx, getHandleHorizontalOffsetPx } from './constants';
 
 const GUTTER_FALLBACK_WIDTH_PX = 32;
-let handleHorizontalOffsetPx = 0;
 
 function safeCoordsAtPos(view: EditorView, pos: number): ReturnType<EditorView['coordsAtPos']> | null {
     try {
@@ -159,7 +158,7 @@ export function hasVisibleLineNumberGutter(view: EditorView): boolean {
 }
 
 function getHandleCenterForLine(view: EditorView, lineNumber: number): { x: number; y: number } | null {
-    const horizontalOffset = handleHorizontalOffsetPx;
+    const horizontalOffset = getHandleHorizontalOffsetPx();
     const lineNumberEl = getLineNumberElementForLine(view, lineNumber);
     if (lineNumberEl) {
         const rect = lineNumberEl.getBoundingClientRect();
@@ -191,7 +190,7 @@ function getHandleCenterForLine(view: EditorView, lineNumber: number): { x: numb
 }
 
 export function getHandleColumnCenterX(view: EditorView): number {
-    const horizontalOffset = handleHorizontalOffsetPx;
+    const horizontalOffset = getHandleHorizontalOffsetPx();
     const lineNumberElementCenterX = getLineNumberElementCenterX(view);
     if (lineNumberElementCenterX !== null) return lineNumberElementCenterX + horizontalOffset;
 
@@ -267,10 +266,4 @@ export function viewportYToEditorLocalY(view: EditorView, viewportY: number): nu
     return (viewportY - rect.top) / scaleY - view.dom.clientTop;
 }
 
-export function setHandleHorizontalOffsetPx(offsetPx: number): void {
-    if (!Number.isFinite(offsetPx)) {
-        handleHorizontalOffsetPx = 0;
-        return;
-    }
-    handleHorizontalOffsetPx = offsetPx;
-}
+export { setHandleHorizontalOffsetPx } from './constants';
