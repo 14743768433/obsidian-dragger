@@ -1,6 +1,6 @@
 import { EditorView } from '@codemirror/view';
-import { detectBlock, getHeadingSectionRange } from './block-detector';
-import { BlockInfo, BlockType } from '../../types';
+import { detectBlock, getHeadingSectionRange } from '../block-detector';
+import { BlockInfo, BlockType } from '../../../types';
 
 export class DragSourceResolver {
     constructor(private readonly view: EditorView) { }

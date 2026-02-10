@@ -5,15 +5,15 @@ import {
     beginDragSession,
     finishDragSession,
     startDragFromHandle,
-} from '../handlers/DragTransfer';
+} from '../interaction/DragTransfer';
 import { buildListIntent, DragLifecycleEmitter } from '../core/DragLifecycleEmitter';
-import { ServiceContainer } from '../core/ServiceContainer';
+import { ServiceContainer } from '../core/services/ServiceContainer';
 import { BlockMover } from '../movers/BlockMover';
-import { DropTargetCalculator } from '../handlers/DropTargetCalculator';
-import { HandleVisibilityController } from './HandleVisibilityController';
+import { DropTargetCalculator } from '../drop-target/DropTargetCalculator';
+import { HandleVisibilityController } from '../visual/HandleVisibilityController';
 import { DragPerfSessionManager } from './DragPerfSessionManager';
 import { SemanticRefreshScheduler } from './SemanticRefreshScheduler';
-import { DragEventHandler } from '../handlers/DragEventHandler';
+import { DragEventHandler } from '../interaction/DragEventHandler';
 
 export interface HandleInteractionOrchestratorDeps {
     view: EditorView;

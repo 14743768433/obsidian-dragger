@@ -9,7 +9,7 @@ import {
     RANGE_SELECTED_HANDLE_CLASS,
     RANGE_SELECTION_LINK_CLASS,
 } from '../core/selectors';
-import { RangeSelectionVisualManager } from '../managers/RangeSelectionVisualManager';
+import { RangeSelectionVisualManager } from '../visual/RangeSelectionVisualManager';
 import { MobileGestureController } from './MobileGestureController';
 import { PointerSessionController } from './PointerSessionController';
 import {

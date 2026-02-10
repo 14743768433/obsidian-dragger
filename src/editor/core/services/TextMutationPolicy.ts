@@ -1,11 +1,11 @@
-import { BlockInfo } from '../../types';
+import { BlockInfo } from '../../../types';
 import {
     adjustListToTargetContext,
     buildInsertText as buildInsertTextByPolicy,
     buildTargetMarker,
     getListContext,
-} from './block-mutation';
-import { DocLike, ListContext, ParsedLine } from './protocol-types';
+} from '../block-mutation';
+import { DocLike, ListContext, ParsedLine } from '../protocol-types';
 import { LineParsingService } from './LineParsingService';
 
 export class TextMutationPolicy {

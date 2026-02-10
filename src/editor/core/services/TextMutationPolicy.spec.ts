@@ -1,7 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { describe, expect, it } from 'vitest';
-import { BlockInfo, BlockType } from '../../types';
+import { BlockInfo, BlockType } from '../../../types';
 import { LineParsingService } from './LineParsingService';
 import { TextMutationPolicy } from './TextMutationPolicy';
 

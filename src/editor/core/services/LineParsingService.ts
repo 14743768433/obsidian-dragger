@@ -1,13 +1,13 @@
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { DocLike, ParsedLine } from './protocol-types';
+import { DocLike, ParsedLine } from '../protocol-types';
 import {
     buildIndentStringFromSample,
     getIndentUnitWidth,
     getIndentUnitWidthForDoc,
     normalizeTabSize,
     parseLineWithQuote,
-} from '../utils/indent-utils';
+} from '../../utils/indent-utils';
 
 export class LineParsingService {
     constructor(private readonly view: EditorView) { }

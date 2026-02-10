@@ -19,27 +19,27 @@ import {
 } from './core/table-guard';
 import { prewarmFenceScan } from './core/block-detector';
 import { BlockMover } from './movers/BlockMover';
-import { DropIndicatorManager } from './managers/DropIndicatorManager';
-import { DropTargetCalculator } from './handlers/DropTargetCalculator';
-import { DragEventHandler } from './handlers/DragEventHandler';
+import { DropIndicatorManager } from './visual/DropIndicatorManager';
+import { DropTargetCalculator } from './drop-target/DropTargetCalculator';
+import { DragEventHandler } from './interaction/DragEventHandler';
 import {
     beginDragSession,
     finishDragSession,
     getDragSourceBlockFromEvent,
-} from './handlers/DragTransfer';
+} from './interaction/DragTransfer';
 import { BlockInfo } from '../types';
-import { LineHandleManager } from './managers/LineHandleManager';
-import { EmbedHandleManager } from './managers/EmbedHandleManager';
-import { HandleVisibilityController } from './managers/HandleVisibilityController';
-import { SemanticRefreshScheduler } from './managers/SemanticRefreshScheduler';
-import { LineMapPrewarmer } from './managers/LineMapPrewarmer';
-import { DragPerfSessionManager } from './managers/DragPerfSessionManager';
-import { ServiceContainer } from './core/ServiceContainer';
+import { LineHandleManager } from './visual/LineHandleManager';
+import { EmbedHandleManager } from './visual/EmbedHandleManager';
+import { HandleVisibilityController } from './visual/HandleVisibilityController';
+import { SemanticRefreshScheduler } from './orchestration/SemanticRefreshScheduler';
+import { LineMapPrewarmer } from './orchestration/LineMapPrewarmer';
+import { DragPerfSessionManager } from './orchestration/DragPerfSessionManager';
+import { ServiceContainer } from './core/services/ServiceContainer';
 import { hasVisibleLineNumberGutter } from './core/handle-position';
 import {
     DragLifecycleEmitter,
 } from './core/DragLifecycleEmitter';
-import { HandleInteractionOrchestrator } from './managers/HandleInteractionOrchestrator';
+import { HandleInteractionOrchestrator } from './orchestration/HandleInteractionOrchestrator';
 
 /**
  * 创建拖拽手柄ViewPlugin

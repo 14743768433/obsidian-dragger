@@ -1,10 +1,10 @@
 import { EditorView } from '@codemirror/view';
-import { BlockInfo } from '../../types';
-import { getLineMap, LineMap } from './line-map';
+import { BlockInfo } from '../../../types';
+import { getLineMap, LineMap } from '../line-map';
 import {
     resolveDropRuleContextAtInsertion,
     type DropRuleContext,
-} from './container-policies';
+} from '../container-policies';
 
 export class ContainerPolicyService {
     constructor(private readonly view: EditorView) { }

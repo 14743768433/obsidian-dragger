@@ -4,8 +4,8 @@ import { GeometryCalculator } from './GeometryCalculator';
 import { ContainerPolicyService } from './ContainerPolicyService';
 import { TextMutationPolicy } from './TextMutationPolicy';
 import { DragSourceResolver } from './DragSourceResolver';
-import { DropTargetCalculatorDeps } from '../handlers/DropTargetCalculator';
-import { BlockMoverDeps } from '../movers/BlockMover';
+import { DropTargetCalculatorDeps } from '../../drop-target/DropTargetCalculator';
+import { BlockMoverDeps } from '../../movers/BlockMover';
 
 /**
  * Groups the stateless/low-state core services that many subsystems depend on.
