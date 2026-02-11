@@ -52,9 +52,7 @@ export class DragNDropSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
 
-        containerEl.createEl('h2', { text: 'Dragger 设置' });
-
-        containerEl.createEl('h3', { text: '样式' });
+        new Setting(containerEl).setName('样式').setHeading();
 
         const colorSetting = new Setting(containerEl)
             .setName('抓取手柄颜色')
@@ -147,7 +145,7 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 await this.plugin.saveSettings();
             }));
 
-        containerEl.createEl('h3', { text: '功能' });
+        new Setting(containerEl).setName('功能').setHeading();
         new Setting(containerEl)
             .setName('开启多行选取')
             .setDesc('关闭后仅保留单块拖拽，不进入多行选取流程')

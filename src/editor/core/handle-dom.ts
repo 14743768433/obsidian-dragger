@@ -8,7 +8,10 @@ export function createDragHandleElement(options: DragHandleDomOptions): HTMLElem
     const handle = document.createElement('div');
     handle.className = options.className ?? 'dnd-drag-handle';
     handle.setAttribute('draggable', 'true');
-    handle.innerHTML = '<span class="dnd-handle-core" aria-hidden="true"></span>';
+    const core = document.createElement('span');
+    core.className = 'dnd-handle-core';
+    core.setAttribute('aria-hidden', 'true');
+    handle.appendChild(core);
     handle.addEventListener('dragstart', (e) => options.onDragStart(e, handle));
     if (options.onDragEnd) {
         handle.addEventListener('dragend', (e) => options.onDragEnd?.(e, handle));

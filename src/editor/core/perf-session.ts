@@ -148,5 +148,5 @@ export function createDragPerfSession(input: DragPerfSessionInput): DragPerfSess
 export function logDragPerfSession(session: DragPerfSession | null, reason: string): void {
     if (!session) return;
     const snapshot = session.snapshot();
-    console.info('[Dragger][Perf]', reason, serializeSnapshot(snapshot));
+    console.debug('[Dragger][Perf]', reason, serializeSnapshot(snapshot));
 }
