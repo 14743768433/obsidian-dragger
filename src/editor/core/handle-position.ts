@@ -182,9 +182,15 @@ function getHandleCenterForLine(view: EditorView, lineNumber: number): { x: numb
         const line = view.state.doc.line(lineNumber);
         const lineCoords = safeCoordsAtPos(view, line.from);
         if (lineCoords) {
+            const height = lineCoords.bottom - lineCoords.top;
+            const defaultLineHeight = view.defaultLineHeight || 20;
+            const offsetY = height > defaultLineHeight * 1.5
+                ? defaultLineHeight / 2
+                : height / 2;
+
             return {
                 x: getHandleColumnCenterX(view),
-                y: lineCoords.top + Math.max(0, (lineCoords.bottom - lineCoords.top) / 2),
+                y: lineCoords.top + Math.max(0, offsetY),
             };
         }
     }

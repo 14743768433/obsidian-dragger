@@ -4,7 +4,7 @@ import {
     getLineNumberElementForLine,
     hasVisibleLineNumberGutter,
 } from '../core/handle-position';
-import { DRAG_HANDLE_CLASS, EMBED_HANDLE_CLASS } from '../core/selectors';
+import { DRAG_HANDLE_CLASS } from '../core/selectors';
 import {
     HANDLE_INTERACTION_ZONE_PX,
     HOVER_HIDDEN_LINE_NUMBER_CLASS,
@@ -14,7 +14,6 @@ import {
 export interface HandleVisibilityDeps {
     getBlockInfoForHandle: (handle: HTMLElement) => BlockInfo | null;
     getDraggableBlockAtPoint: (clientX: number, clientY: number) => BlockInfo | null;
-    isManagedEmbedHandle: (handle: HTMLElement) => boolean;
 }
 
 export class HandleVisibilityController {
@@ -26,7 +25,7 @@ export class HandleVisibilityController {
     constructor(
         private readonly view: EditorView,
         private readonly deps: HandleVisibilityDeps
-    ) {}
+    ) { }
 
     getActiveHandle(): HTMLElement | null {
         return this.activeHandle;
@@ -122,7 +121,7 @@ export class HandleVisibilityController {
 
         const directHandle = target.closest<HTMLElement>(`.${DRAG_HANDLE_CLASS}`);
         if (!directHandle) return null;
-        if (this.view.dom.contains(directHandle) || this.deps.isManagedEmbedHandle(directHandle)) {
+        if (this.view.dom.contains(directHandle)) {
             return directHandle;
         }
         return null;
@@ -167,10 +166,7 @@ export class HandleVisibilityController {
         const candidates = Array.from(this.view.dom.querySelectorAll<HTMLElement>(selector));
         if (candidates.length === 0) return null;
 
-        const inlineHandle = candidates.find((handle) => !handle.classList.contains(EMBED_HANDLE_CLASS));
-        if (inlineHandle) return inlineHandle;
-
-        return candidates.find((handle) => this.deps.isManagedEmbedHandle(handle)) ?? null;
+        return candidates[0] ?? null;
     }
 
     private setHoveredLineNumber(lineNumber: number): void {

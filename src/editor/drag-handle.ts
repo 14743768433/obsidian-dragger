@@ -28,7 +28,6 @@ import {
     getDragSourceBlockFromEvent,
 } from './interaction/DragTransfer';
 import { LineHandleManager } from './visual/LineHandleManager';
-import { EmbedHandleManager } from './visual/EmbedHandleManager';
 import { HandleVisibilityController } from './visual/HandleVisibilityController';
 import { SemanticRefreshScheduler } from './orchestration/SemanticRefreshScheduler';
 import { LineMapPrewarmer } from './orchestration/LineMapPrewarmer';
@@ -53,7 +52,6 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             private readonly blockMover: BlockMover;
             private readonly dropTargetCalculator: DropTargetCalculator;
             private readonly lineHandleManager: LineHandleManager;
-            private readonly embedHandleManager: EmbedHandleManager;
             private readonly dragEventHandler: DragEventHandler;
             private readonly handleVisibility: HandleVisibilityController;
             private readonly orchestrator: HandleInteractionOrchestrator;
@@ -76,7 +74,6 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.handleVisibility = new HandleVisibilityController(this.view, {
                     getBlockInfoForHandle: (handle) => this.services.dragSource.getBlockInfoForHandle(handle),
                     getDraggableBlockAtPoint: (clientX, clientY) => this.services.dragSource.getDraggableBlockAtPoint(clientX, clientY),
-                    isManagedEmbedHandle: (handle) => this.embedHandleManager?.isManagedHandle(handle) ?? false,
                 });
                 this.dragPerfManager = new DragPerfSessionManager(this.view);
                 this.dropTargetCalculator = new DropTargetCalculator(this.view,
@@ -144,11 +141,6 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     getDraggableBlockAtLine: (lineNumber) => this.services.dragSource.getDraggableBlockAtLine(lineNumber),
                     shouldRenderLineHandles: () => true,
                 });
-                this.embedHandleManager = new EmbedHandleManager(this.view, {
-                    createHandleElement: (getBlockInfo) => this.orchestrator.createHandleElement(getBlockInfo),
-                    resolveBlockInfoForEmbed: (embedEl) => this.services.dragSource.getBlockInfoForEmbed(embedEl),
-                    shouldRenderEmbedHandles: () => true,
-                });
                 this.dragEventHandler = new DragEventHandler(this.view, {
                     getDragSourceBlock: (e) => getDragSourceBlockFromEvent(e, this.view),
                     getBlockInfoForHandle: (handle) =>
@@ -195,7 +187,6 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
 
                 this.lineHandleManager.start();
                 this.dragEventHandler.attach();
-                this.embedHandleManager.start();
                 this.semanticRefreshScheduler.bindViewportScrollFallback();
                 document.addEventListener('pointermove', this.onDocumentPointerMove, { passive: true });
                 window.addEventListener('dnd:settings-updated', this.onSettingsUpdated);
@@ -262,7 +253,6 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.lineHandleManager.destroy();
                 this.view.dom.classList.remove(ROOT_EDITOR_CLASS);
                 this.view.contentDOM.classList.remove(MAIN_EDITOR_CONTENT_CLASS);
-                this.embedHandleManager.destroy();
                 this.dropIndicator.destroy();
                 this.orchestrator.emitDragLifecycle({
                     state: 'idle',
@@ -331,8 +321,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             private refreshDecorationsAndEmbeds(): void {
                 this.syncGutterClass();
                 this.semanticRefreshScheduler.clearPendingSemanticRefresh();
-                this.lineHandleManager.scheduleScan({ urgent: true });
-                this.embedHandleManager.scheduleScan({ urgent: true });
+                this.lineHandleManager.scheduleScan();
             }
 
             private handleSettingsUpdated(): void {

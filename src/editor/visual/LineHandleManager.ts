@@ -42,18 +42,15 @@ export class LineHandleManager {
         this.rescan();
     }
 
-    scheduleScan(options?: { urgent?: boolean }): void {
+    scheduleScan(): void {
         if (this.destroyed) return;
         if (this.pendingScan) return;
         this.pendingScan = true;
 
-        if (options?.urgent) {
-            // Immediate sync scan for urgent requests
-            this.pendingScan = false;
-            this.rescan();
-            return;
-        }
-
+        // [Root Cause Fix] Always use RAF for updates instead of sync updates.
+        // Sync updates during 'update' cycles (scroll/click) often happen before
+        // browser layout is ready, causing coordsAtPos to fail/return null.
+        // Deferring to RAF ensures stable layout.
         this.rafId = requestAnimationFrame(() => {
             this.rafId = null;
             if (this.destroyed) return;
@@ -181,6 +178,10 @@ export class LineHandleManager {
 
         if (left === null || top === null) {
             handle.classList.add('dnd-hidden');
+            // [Fix] Verify positioning in the next frame if immediate positioning fails.
+            if (!this.pendingScan && !this.destroyed) {
+                this.scheduleScan();
+            }
             return;
         }
 
