@@ -32,7 +32,7 @@ describe('TextMutationPolicy', () => {
         const { policy, doc } = createPolicy('paragraph');
         const sourceBlock = createBlock(BlockType.Callout, '> [!TIP]\n> keep marker');
 
-        const insertText = policy.buildInsertText(doc as any, sourceBlock, 2, sourceBlock.content);
+        const insertText = policy.buildInsertText(doc, sourceBlock, 2, sourceBlock.content);
 
         expect(insertText).toBe('> [!TIP]\n> keep marker\n');
     });
@@ -41,7 +41,7 @@ describe('TextMutationPolicy', () => {
         const { policy, doc } = createPolicy('- [ ] existing task');
         const sourceBlock = createBlock(BlockType.ListItem, '- moved item');
 
-        const insertText = policy.buildInsertText(doc as any, sourceBlock, 2, sourceBlock.content);
+        const insertText = policy.buildInsertText(doc, sourceBlock, 2, sourceBlock.content);
 
         expect(insertText).toBe('- [ ] moved item\n');
     });

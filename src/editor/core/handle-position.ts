@@ -234,20 +234,28 @@ export function alignInlineHandleToHandleColumn(view: EditorView, handle: HTMLEl
     const lineEl = handle.closest('.cm-line') as HTMLElement | null;
     if (lineEl) {
         const lineRect = lineEl.getBoundingClientRect();
-        handle.style.left = `${getInlineHandleLeftPx(view, lineRect.left, lineNumber)}px`;
+        handle.setCssStyles({
+            left: `${getInlineHandleLeftPx(view, lineRect.left, lineNumber)}px`,
+        });
         const topPx = typeof lineNumber === 'number' ? getHandleTopPxForLine(view, lineNumber) : null;
         if (topPx !== null) {
-            handle.style.top = `${Math.round(topPx - lineRect.top)}px`;
+            handle.setCssStyles({
+                top: `${Math.round(topPx - lineRect.top)}px`,
+            });
         }
         return;
     }
 
     const offsetParentEl = (handle.offsetParent instanceof HTMLElement ? handle.offsetParent : view.dom);
     const parentRect = offsetParentEl.getBoundingClientRect();
-    handle.style.left = `${getInlineHandleLeftPx(view, parentRect.left, lineNumber)}px`;
+    handle.setCssStyles({
+        left: `${getInlineHandleLeftPx(view, parentRect.left, lineNumber)}px`,
+    });
     const topPx = typeof lineNumber === 'number' ? getHandleTopPxForLine(view, lineNumber) : null;
     if (topPx !== null) {
-        handle.style.top = `${Math.round(topPx - parentRect.top)}px`;
+        handle.setCssStyles({
+            top: `${Math.round(topPx - parentRect.top)}px`,
+        });
     }
 }
 

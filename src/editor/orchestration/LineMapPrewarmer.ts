@@ -17,7 +17,7 @@ export class LineMapPrewarmer {
     private pending: PendingPrewarm | null = null;
 
     schedule(update: ViewUpdate): void {
-        const nextState = update.state as any;
+        const nextState = update.state;
         const docLines = nextState?.doc?.lines ?? 0;
         if (docLines > 30_000) {
             // On very large docs, background prewarm can still cause visible typing hitches.
@@ -26,13 +26,13 @@ export class LineMapPrewarmer {
             return;
         }
         this.pending = {
-            previousState: update.startState as any,
+            previousState: update.startState,
             nextState,
-            changes: update.changes as any,
+            changes: update.changes,
             docLines,
         };
         if (this.idleHandle !== null) {
-            const cancelIdle = (window as any).cancelIdleCallback as
+            const cancelIdle = window.cancelIdleCallback as
                 | ((id: number) => void)
                 | undefined;
             if (typeof cancelIdle === 'function') {
@@ -54,7 +54,7 @@ export class LineMapPrewarmer {
 
     clear(): void {
         if (this.idleHandle !== null) {
-            const cancelIdle = (window as any).cancelIdleCallback as
+            const cancelIdle = window.cancelIdleCallback as
                 | ((id: number) => void)
                 | undefined;
             if (typeof cancelIdle === 'function') {
@@ -87,7 +87,7 @@ export class LineMapPrewarmer {
                 getLineMap(latest.nextState);
             }
         };
-        const requestIdle = (window as any).requestIdleCallback as
+        const requestIdle = window.requestIdleCallback as
             | ((cb: () => void, options?: { timeout?: number }) => number)
             | undefined;
         if (typeof requestIdle === 'function') {

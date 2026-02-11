@@ -72,8 +72,10 @@ describe('handle-position', () => {
         const mainRow = document.createElement('div');
         mainRow.className = 'cm-gutterElement';
         mainRow.textContent = '7';
-        mainRow.style.paddingLeft = '12px';
-        mainRow.style.paddingRight = '4px';
+        mainRow.setCssStyles({
+            paddingLeft: '12px',
+            paddingRight: '4px',
+        });
         mainGutter.appendChild(mainRow);
         gutters.appendChild(mainGutter);
         scroller.appendChild(gutters);

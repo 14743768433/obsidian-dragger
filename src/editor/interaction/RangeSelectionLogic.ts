@@ -290,7 +290,7 @@ export function resolveTargetBoundaryForRangeSelection(
     const doc = view.state.doc;
     if (doc.lines <= 0) return null;
     const contentRect = view.contentDOM.getBoundingClientRect();
-    const lineHeight = Math.max(12, Number((view as any).defaultLineHeight ?? 20));
+    const lineHeight = Math.max(12, Number(view.defaultLineHeight ?? 20));
 
     const probeXs = [
         clientX,

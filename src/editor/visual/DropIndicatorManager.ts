@@ -61,8 +61,8 @@ export class DropIndicatorManager {
         this.pendingDragInfo = null;
         this.lastEvaluatedInput = null;
         this.lastTargetInfo = null;
-        this.indicatorEl.style.removeProperty('display');
-        this.highlightEl.style.removeProperty('display');
+        this.indicatorEl.classList.add('dnd-hidden');
+        this.highlightEl.classList.add('dnd-hidden');
     }
 
     destroy(): void {
@@ -77,8 +77,8 @@ export class DropIndicatorManager {
             if (this.lastTargetInfo) {
                 this.renderTargetInfo(this.lastTargetInfo);
             } else {
-                this.indicatorEl.style.removeProperty('display');
-                this.highlightEl.style.removeProperty('display');
+                this.indicatorEl.classList.add('dnd-hidden');
+                this.highlightEl.classList.add('dnd-hidden');
             }
             this.options?.onFrameMetrics?.({
                 evaluated: false,
@@ -107,8 +107,8 @@ export class DropIndicatorManager {
         this.lastEvaluatedInput = { ...info };
         this.lastTargetInfo = targetInfo;
         if (!targetInfo) {
-            this.indicatorEl.style.removeProperty('display');
-            this.highlightEl.style.removeProperty('display');
+            this.indicatorEl.classList.add('dnd-hidden');
+            this.highlightEl.classList.add('dnd-hidden');
             return;
         }
         this.renderTargetInfo(targetInfo);
@@ -123,23 +123,23 @@ export class DropIndicatorManager {
         const indicatorRight = contentRect.right - contentPaddingRight;
         const indicatorWidth = Math.max(8, indicatorRight - indicatorLeft);
 
+        this.indicatorEl.classList.remove('dnd-hidden');
         this.indicatorEl.setCssStyles({
-            display: 'block',
             top: `${indicatorY}px`,
             left: `${indicatorLeft}px`,
             width: `${indicatorWidth}px`,
         });
 
         if (targetInfo.highlightRect) {
+            this.highlightEl.classList.remove('dnd-hidden');
             this.highlightEl.setCssStyles({
-                display: 'block',
                 top: `${targetInfo.highlightRect.top}px`,
                 left: `${targetInfo.highlightRect.left}px`,
                 width: `${targetInfo.highlightRect.width}px`,
                 height: `${targetInfo.highlightRect.height}px`,
             });
         } else {
-            this.highlightEl.style.removeProperty('display');
+            this.highlightEl.classList.add('dnd-hidden');
         }
     }
 

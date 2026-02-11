@@ -79,7 +79,7 @@ export class BlockMover {
         }
 
         targetLineNumber = clampTargetLineNumber(doc.lines, targetLineNumber);
-        const lineMap = getLineMap(view.state as any);
+        const lineMap = getLineMap(view.state);
         const containerRule = this.deps.resolveDropRuleAtInsertion(
             sourceBlock,
             targetLineNumber,
@@ -179,7 +179,7 @@ export class BlockMover {
         }
         targetLineNumber = clampTargetLineNumber(doc.lines, targetLineNumber);
 
-        const lineMap = getLineMap(view.state as any);
+        const lineMap = getLineMap(view.state);
         const containerRule = this.deps.resolveDropRuleAtInsertion(
             sourceBlock,
             targetLineNumber,

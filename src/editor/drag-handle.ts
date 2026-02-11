@@ -201,7 +201,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
 
                 // Pre-warm fence scan during idle to ensure code/math block boundaries are ready
                 const warmupFenceScan = () => prewarmFenceScan(view.state.doc);
-                const requestIdle = (window as any).requestIdleCallback as
+                const requestIdle = window.requestIdleCallback as
                     | ((cb: () => void, options?: { timeout?: number }) => number)
                     | undefined;
                 if (typeof requestIdle === 'function') {

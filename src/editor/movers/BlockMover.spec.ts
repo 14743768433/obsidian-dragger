@@ -39,8 +39,7 @@ describe('BlockMover', () => {
         const view = { state, dispatch } as unknown as EditorView;
         const mover = new BlockMover({
             view,
-            clampTargetLineNumber: (_total, lineNumber) => lineNumber,
-            getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
+            getAdjustedTargetLocation: (lineNumber: number) => ({ lineNumber, blockAdjusted: false }),
             resolveDropRuleAtInsertion: () => ({
                 slotContext: 'outside',
                 decision: { allowDrop: false },
@@ -63,11 +62,10 @@ describe('BlockMover', () => {
         const state = EditorState.create({ doc: 'alpha\nbeta\ngamma' });
         const dispatch = vi.fn();
         const view = { state, dispatch } as unknown as EditorView;
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
+        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as unknown as ReturnType<typeof setTimeout>);
         const mover = new BlockMover({
             view,
-            clampTargetLineNumber: (_total, lineNumber) => lineNumber,
-            getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
+            getAdjustedTargetLocation: (lineNumber: number) => ({ lineNumber, blockAdjusted: false }),
             resolveDropRuleAtInsertion: () => ({
                 slotContext: 'outside',
                 decision: { allowDrop: true },
@@ -96,8 +94,7 @@ describe('BlockMover', () => {
         const view = { state, dispatch } as unknown as EditorView;
         const mover = new BlockMover({
             view,
-            clampTargetLineNumber: (_total, lineNumber) => lineNumber,
-            getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
+            getAdjustedTargetLocation: (lineNumber: number) => ({ lineNumber, blockAdjusted: false }),
             resolveDropRuleAtInsertion: () => ({
                 slotContext: 'outside',
                 decision: { allowDrop: true },
@@ -123,11 +120,10 @@ describe('BlockMover', () => {
         const state = EditorState.create({ doc: 'a\nb\nc\nd\ne\nf' });
         const dispatch = vi.fn();
         const view = { state, dispatch } as unknown as EditorView;
-        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as any);
+        const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(() => 0 as unknown as ReturnType<typeof setTimeout>);
         const mover = new BlockMover({
             view,
-            clampTargetLineNumber: (_total, lineNumber) => lineNumber,
-            getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
+            getAdjustedTargetLocation: (lineNumber: number) => ({ lineNumber, blockAdjusted: false }),
             resolveDropRuleAtInsertion: () => ({
                 slotContext: 'outside',
                 decision: { allowDrop: true },
@@ -176,8 +172,7 @@ describe('BlockMover', () => {
         const view = { state, dispatch } as unknown as EditorView;
         const mover = new BlockMover({
             view,
-            clampTargetLineNumber: (_total, lineNumber) => lineNumber,
-            getAdjustedTargetLocation: (lineNumber) => ({ lineNumber, blockAdjusted: false }),
+            getAdjustedTargetLocation: (lineNumber: number) => ({ lineNumber, blockAdjusted: false }),
             resolveDropRuleAtInsertion: () => ({
                 slotContext: 'outside',
                 decision: { allowDrop: true },

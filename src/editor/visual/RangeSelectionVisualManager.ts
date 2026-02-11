@@ -190,7 +190,7 @@ export class RangeSelectionVisualManager {
 
     private bindScrollListener(): void {
         this.unbindScrollListener();
-        const scroller = ((this.view as any).scrollDOM as HTMLElement | undefined)
+        const scroller = (this.view.scrollDOM as HTMLElement | undefined)
             ?? (this.view.dom.querySelector('.cm-scroller') as HTMLElement | null)
             ?? null;
         if (!scroller) return;

@@ -44,7 +44,7 @@ describe('DropIndicatorManager', () => {
             return queuedFrames.length;
         });
         vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { });
-        vi.spyOn(window, 'getComputedStyle').mockReturnValue({ paddingRight: '0' } as any);
+        vi.spyOn(window, 'getComputedStyle').mockReturnValue({ paddingRight: '0' } as CSSStyleDeclaration);
 
         const manager = new DropIndicatorManager(view, resolveDropTarget, { onFrameMetrics });
         const source = {
