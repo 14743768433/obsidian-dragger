@@ -6,7 +6,7 @@
 
 ![Obsidian](https://img.shields.io/badge/Obsidian-%3E%3D1.0.0-7c3aed?logo=obsidian&logoColor=white) ![License](https://img.shields.io/github/license/Ariestar/obsidian-dragger) ![Release](https://img.shields.io/github/v/release/Ariestar/obsidian-dragger)
 
-<!-- TODO: Record a demo GIF with ScreenToGif (<5 MB) and replace this comment -->
+![gif](https://github.com/user-attachments/assets/bfb3ac7d-7dfe-4c24-a428-5d08b49d0654)
 
 ## Features
 
