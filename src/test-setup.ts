@@ -4,3 +4,5 @@ if (typeof HTMLElement !== 'undefined' && !HTMLElement.prototype.setCssStyles) {
         Object.assign(this.style, styles);
     };
 }
+
+export {};
