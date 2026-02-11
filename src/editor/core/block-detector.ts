@@ -263,6 +263,31 @@ function findNextNonEmptyLine(doc: Text, fromLine: number, tabSize: number): { i
 const blockDetectionCache = new WeakMap<Text, Map<number, Map<number, BlockInfo | null>>>();
 const LIST_LINE_MAP_COLD_BUILD_MAX_LINES = 30_000;
 
+const YAML_FENCE_RE = /^-{3}\s*$/;
+const yamlFrontmatterEndLineCache = new WeakMap<Text, number>();
+
+function getYamlFrontmatterEndLine(doc: Text): number {
+    const cached = yamlFrontmatterEndLineCache.get(doc);
+    if (cached !== undefined) return cached;
+
+    let endLine = 0;
+    if (doc.lines >= 2 && YAML_FENCE_RE.test(doc.line(1).text)) {
+        for (let i = 2; i <= doc.lines; i++) {
+            if (YAML_FENCE_RE.test(doc.line(i).text)) {
+                endLine = i;
+                break;
+            }
+        }
+    }
+    yamlFrontmatterEndLineCache.set(doc, endLine);
+    return endLine;
+}
+
+function isInsideYamlFrontmatter(doc: Text, lineNumber: number): boolean {
+    const endLine = getYamlFrontmatterEndLine(doc);
+    return endLine > 0 && lineNumber >= 1 && lineNumber <= endLine;
+}
+
 type DetectBlockPerfDurationKey = 'detect_block_uncached';
 
 let detectBlockPerfRecorder: ((key: DetectBlockPerfDurationKey, durationMs: number) => void) | null = null;
@@ -286,6 +311,11 @@ function detectBlockUncached(state: EditorState, lineNumber: number, tabSize: nu
     const doc = state.doc;
 
     if (lineNumber < 1 || lineNumber > doc.lines) {
+        return null;
+    }
+
+    // YAML frontmatter 区域（含两条 --- 分隔线）不可拖拽
+    if (isInsideYamlFrontmatter(doc, lineNumber)) {
         return null;
     }
 

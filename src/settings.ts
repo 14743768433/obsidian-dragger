@@ -26,6 +26,8 @@ export interface DragNDropSettings {
     enableMultiLineSelection: boolean;
     // 手柄横向偏移量（像素）
     handleHorizontalOffsetPx: number;
+    // 手柄是否与行号对齐
+    alignHandleToLineNumber: boolean;
 }
 
 export const DEFAULT_SETTINGS: DragNDropSettings = {
@@ -39,6 +41,7 @@ export const DEFAULT_SETTINGS: DragNDropSettings = {
     enableCrossFileDrag: false,
     enableMultiLineSelection: true,
     handleHorizontalOffsetPx: 0,
+    alignHandleToLineNumber: true,
 };
 
 export class DragNDropSettingTab extends PluginSettingTab {
@@ -124,6 +127,16 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.handleHorizontalOffsetPx)
                 .onChange(async (value) => {
                     this.plugin.settings.handleHorizontalOffsetPx = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName(i.alignHandleToLineNumber)
+            .setDesc(i.alignHandleToLineNumberDesc)
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.alignHandleToLineNumber)
+                .onChange(async (value) => {
+                    this.plugin.settings.alignHandleToLineNumber = value;
                     await this.plugin.saveSettings();
                 }));
 

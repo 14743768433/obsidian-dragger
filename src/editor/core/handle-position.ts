@@ -1,7 +1,6 @@
 import { EditorView } from '@codemirror/view';
-import { getHandleSizePx, getHandleHorizontalOffsetPx } from './constants';
+import { getHandleSizePx, getHandleHorizontalOffsetPx, getAlignToLineNumber } from './constants';
 
-const GUTTER_FALLBACK_WIDTH_PX = 32;
 
 function safeCoordsAtPos(view: EditorView, pos: number): ReturnType<EditorView['coordsAtPos']> | null {
     try {
@@ -159,19 +158,23 @@ export function hasVisibleLineNumberGutter(view: EditorView): boolean {
 
 function getHandleCenterForLine(view: EditorView, lineNumber: number): { x: number; y: number } | null {
     const horizontalOffset = getHandleHorizontalOffsetPx();
-    const lineNumberEl = getLineNumberElementForLine(view, lineNumber);
-    if (lineNumberEl) {
-        const rect = lineNumberEl.getBoundingClientRect();
-        if (isLineNumberRowRect(rect)) {
-            const textRect = getLineNumberTextRect(lineNumberEl);
-            const centerY = textRect
-                ? (textRect.top + textRect.height / 2)
-                : (rect.top + rect.height / 2);
-            const centerX = (getGutterElementInnerCenterX(lineNumberEl) ?? (rect.left + rect.width / 2)) + horizontalOffset;
-            return {
-                x: centerX,
-                y: centerY,
-            };
+    const alignToLineNumber = getAlignToLineNumber();
+
+    if (alignToLineNumber) {
+        const lineNumberEl = getLineNumberElementForLine(view, lineNumber);
+        if (lineNumberEl) {
+            const rect = lineNumberEl.getBoundingClientRect();
+            if (isLineNumberRowRect(rect)) {
+                const textRect = getLineNumberTextRect(lineNumberEl);
+                const centerY = textRect
+                    ? (textRect.top + textRect.height / 2)
+                    : (rect.top + rect.height / 2);
+                const centerX = (getGutterElementInnerCenterX(lineNumberEl) ?? (rect.left + rect.width / 2)) + horizontalOffset;
+                return {
+                    x: centerX,
+                    y: centerY,
+                };
+            }
         }
     }
 
@@ -191,17 +194,22 @@ function getHandleCenterForLine(view: EditorView, lineNumber: number): { x: numb
 
 export function getHandleColumnCenterX(view: EditorView): number {
     const horizontalOffset = getHandleHorizontalOffsetPx();
-    const lineNumberElementCenterX = getLineNumberElementCenterX(view);
-    if (lineNumberElementCenterX !== null) return lineNumberElementCenterX + horizontalOffset;
+    const alignToLineNumber = getAlignToLineNumber();
 
-    const lineNumberRect = getLineNumberGutterRect(view);
-    if (lineNumberRect) return lineNumberRect.left + lineNumberRect.width / 2 + horizontalOffset;
+    if (alignToLineNumber) {
+        const lineNumberElementCenterX = getLineNumberElementCenterX(view);
+        if (lineNumberElementCenterX !== null) return lineNumberElementCenterX + horizontalOffset;
+
+        const lineNumberRect = getLineNumberGutterRect(view);
+        if (lineNumberRect) return lineNumberRect.left + lineNumberRect.width / 2 + horizontalOffset;
+    }
 
     const gutterRect = getAnyGutterRect(view);
     if (gutterRect) return gutterRect.left + gutterRect.width / 2 + horizontalOffset;
 
+    // 手柄完全悬浮在编辑器左侧边缘，不依赖文档内容
     const contentRect = view.contentDOM.getBoundingClientRect();
-    return contentRect.left - GUTTER_FALLBACK_WIDTH_PX / 2 + horizontalOffset;
+    return contentRect.left - getHandleSizePx() + horizontalOffset;
 }
 
 export function getHandleColumnLeftPx(view: EditorView): number {

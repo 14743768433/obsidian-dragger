@@ -41,6 +41,10 @@ const zh = {
     // Multi-line selection
     multiLineSelection: '多行选取',
     multiLineSelectionDesc: '关闭后仅保留单块拖拽，不进入多行选取流程',
+
+    // Align handle to line number
+    alignHandleToLineNumber: '手柄对齐行号',
+    alignHandleToLineNumberDesc: '关闭后即使显示行号，手柄也定位到编辑器左侧边缘',
 };
 
 const en: typeof zh = {
@@ -76,6 +80,9 @@ const en: typeof zh = {
 
     multiLineSelection: 'Multi-line selection',
     multiLineSelectionDesc: 'Disable to keep single-block drag only',
+
+    alignHandleToLineNumber: 'Align handle to line numbers',
+    alignHandleToLineNumberDesc: 'When off, handles are positioned at the editor edge even if line numbers are visible',
 };
 
 export type I18nStrings = typeof zh;

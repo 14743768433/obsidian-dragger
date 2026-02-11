@@ -4,10 +4,10 @@
     display: none !important;
 }
 
-/* 拖拽手柄 - 使用绝对定位避免挤占空间 */
+/* 拖拽手柄 - 完全悬浮定位，不影响文档布局 */
 .dnd-drag-handle {
     position: absolute;
-    left: -28px;
+    left: -16px;
     top: 0;
     transform: none;
     width: var(--dnd-handle-size, 16px);
@@ -236,13 +236,3 @@ body.dnd-mobile-gesture-lock {
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dnd-drop-highlight-color, var(--interactive-accent)) 36%, transparent);
 }
 
-/* 主编辑器内容左侧留出手柄空间（仅在无行号栏时生效） */
-.markdown-source-view.mod-cm6 .cm-editor.dnd-root-editor.dnd-no-gutter .cm-content.dnd-main-content {
-    padding-left: 32px;
-}
-
-/* 表格渲染编辑区不保留手柄左边距，避免单元格出现异常缩进 */
-.markdown-source-view.mod-cm6 .cm-editor.dnd-root-editor .cm-table-widget .cm-content,
-.markdown-source-view.mod-cm6 .cm-editor.dnd-root-editor .cm-table-widget .cm-line {
-    padding-left: 0 !important;
-}

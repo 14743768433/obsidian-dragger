@@ -1,7 +1,7 @@
 import { Plugin } from 'obsidian';
 import { dragHandleExtension } from './editor/drag-handle';
 import { setHandleHorizontalOffsetPx } from './editor/core/handle-position';
-import { setHandleSizePx } from './editor/core/constants';
+import { setHandleSizePx, setAlignToLineNumber } from './editor/core/constants';
 import { DragNDropSettings, DEFAULT_SETTINGS, DragNDropSettingTab, HandleVisibilityMode } from './settings';
 import { DragLifecycleEvent, DragLifecycleListener } from './types';
 
@@ -54,6 +54,7 @@ export default class DragNDropPlugin extends Plugin {
             : 0;
         this.settings.handleHorizontalOffsetPx = handleOffset;
         setHandleHorizontalOffsetPx(handleOffset);
+        setAlignToLineNumber(this.settings.alignHandleToLineNumber ?? true);
         body.style.setProperty('--dnd-handle-horizontal-offset-px', `${handleOffset}px`);
 
         let colorValue = '';
