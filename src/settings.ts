@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import DragNDropPlugin from './main';
+import { t } from './i18n';
 
 export type HandleVisibilityMode = 'always' | 'hover' | 'hidden';
 export type HandleIconStyle = 'dot' | 'grip-dots' | 'grip-lines' | 'square';
@@ -51,16 +52,17 @@ export class DragNDropSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
+        const i = t();
 
-        new Setting(containerEl).setName('样式').setHeading();
+        new Setting(containerEl).setName(i.headingAppearance).setHeading();
 
         const colorSetting = new Setting(containerEl)
-            .setName('抓取手柄颜色')
-            .setDesc('可跟随主题色，或自定义颜色（选择自定义时生效）');
+            .setName(i.handleColor)
+            .setDesc(i.handleColorDesc);
 
         colorSetting.addDropdown(dropdown => dropdown
-            .addOption('theme', '跟随主题色')
-            .addOption('custom', '自定义')
+            .addOption('theme', i.optionTheme)
+            .addOption('custom', i.optionCustom)
             .setValue(this.plugin.settings.handleColorMode)
             .onChange(async (value: 'theme' | 'custom') => {
                 this.plugin.settings.handleColorMode = value;
@@ -75,12 +77,12 @@ export class DragNDropSettingTab extends PluginSettingTab {
             }));
 
         new Setting(containerEl)
-            .setName('手柄显示模式')
-            .setDesc('控制拖拽手柄的显示方式')
+            .setName(i.handleVisibility)
+            .setDesc(i.handleVisibilityDesc)
             .addDropdown(dropdown => dropdown
-                .addOption('hover', '悬停显示')
-                .addOption('always', '一直显示')
-                .addOption('hidden', '一直隐藏')
+                .addOption('hover', i.optionHover)
+                .addOption('always', i.optionAlways)
+                .addOption('hidden', i.optionHidden)
                 .setValue(this.plugin.settings.handleVisibility)
                 .onChange(async (value: HandleVisibilityMode) => {
                     this.plugin.settings.handleVisibility = value;
@@ -88,13 +90,13 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('手柄图标')
-            .setDesc('选择拖拽手柄的图标样式')
+            .setName(i.handleIcon)
+            .setDesc(i.handleIconDesc)
             .addDropdown(dropdown => dropdown
-                .addOption('dot', '● 圆点')
-                .addOption('grip-dots', '⠿ 六点抓手')
-                .addOption('grip-lines', '☰ 三横线')
-                .addOption('square', '■ 方块')
+                .addOption('dot', i.iconDot)
+                .addOption('grip-dots', i.iconGripDots)
+                .addOption('grip-lines', i.iconGripLines)
+                .addOption('square', i.iconSquare)
                 .setValue(this.plugin.settings.handleIcon)
                 .onChange(async (value: HandleIconStyle) => {
                     this.plugin.settings.handleIcon = value;
@@ -102,8 +104,8 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('手柄大小')
-            .setDesc('调整拖拽手柄的大小（像素）')
+            .setName(i.handleSize)
+            .setDesc(i.handleSizeDesc)
             .addSlider((slider) => slider
                 .setLimits(12, 28, 2)
                 .setDynamicTooltip()
@@ -114,8 +116,8 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName('手柄横向位置')
-            .setDesc('向左为负值，向右为正值')
+            .setName(i.handleOffset)
+            .setDesc(i.handleOffsetDesc)
             .addSlider((slider) => slider
                 .setLimits(-80, 80, 1)
                 .setDynamicTooltip()
@@ -126,12 +128,12 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 }));
 
         const indicatorSetting = new Setting(containerEl)
-            .setName('定位栏颜色')
-            .setDesc('可跟随主题色，或自定义颜色（选择自定义时生效）');
+            .setName(i.indicatorColor)
+            .setDesc(i.indicatorColorDesc);
 
         indicatorSetting.addDropdown(dropdown => dropdown
-            .addOption('theme', '跟随主题色')
-            .addOption('custom', '自定义')
+            .addOption('theme', i.optionTheme)
+            .addOption('custom', i.optionCustom)
             .setValue(this.plugin.settings.indicatorColorMode)
             .onChange(async (value: 'theme' | 'custom') => {
                 this.plugin.settings.indicatorColorMode = value;
@@ -145,10 +147,10 @@ export class DragNDropSettingTab extends PluginSettingTab {
                 await this.plugin.saveSettings();
             }));
 
-        new Setting(containerEl).setName('功能').setHeading();
+        new Setting(containerEl).setName(i.headingBehavior).setHeading();
         new Setting(containerEl)
-            .setName('开启多行选取')
-            .setDesc('关闭后仅保留单块拖拽，不进入多行选取流程')
+            .setName(i.multiLineSelection)
+            .setDesc(i.multiLineSelectionDesc)
             .addToggle(toggle => toggle
                 .setValue(this.plugin.settings.enableMultiLineSelection)
                 .onChange(async (value) => {
