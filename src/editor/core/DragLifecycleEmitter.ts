@@ -1,4 +1,4 @@
-import { BlockInfo, DragLifecycleEvent, DragLifecycleState, DragListIntent } from '../../types';
+import { BlockInfo, DragLifecycleEvent, DragListIntent } from '../../types';
 
 export function createIdleEvent(): DragLifecycleEvent {
     return {

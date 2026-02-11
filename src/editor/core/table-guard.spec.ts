@@ -8,7 +8,9 @@ import {
     isPosInsideRenderedTableCell,
 } from './table-guard';
 
-const originalElementFromPoint = document.elementFromPoint;
+function originalElementFromPoint(this: void, x: number, y: number): Element | null {
+    return document.elementFromPoint(x, y);
+}
 
 function createTableDom() {
     const root = document.createElement('div');

@@ -98,8 +98,7 @@ export class RangeSelectionVisualManager {
         this.handleElements.clear();
 
         for (const link of this.linkEls) {
-            link.style.opacity = '0';
-            link.style.pointerEvents = 'none';
+            link.classList.remove('is-active');
         }
     }
 
@@ -261,8 +260,7 @@ export class RangeSelectionVisualManager {
             const endAnchorY = this.getAnchorY(range.endLineNumber);
             const link = this.ensureLinkEl(i);
             if (startAnchorY === null || endAnchorY === null) {
-                link.style.opacity = '0';
-                link.style.pointerEvents = 'none';
+                link.classList.remove('is-active');
                 continue;
             }
             const topY = Math.min(startAnchorY, endAnchorY);
@@ -271,15 +269,15 @@ export class RangeSelectionVisualManager {
             const bottom = viewportYToEditorLocalY(this.view, bottomY);
             const clampedTop = Math.max(0, Math.min(localViewportHeight, top));
             const clampedBottom = Math.max(clampedTop + 2, Math.min(localViewportHeight, bottom));
-            link.style.opacity = '1';
-            link.style.pointerEvents = 'auto';
-            link.style.left = `${left.toFixed(2)}px`;
-            link.style.top = `${clampedTop.toFixed(2)}px`;
-            link.style.height = `${Math.max(2, clampedBottom - clampedTop).toFixed(2)}px`;
+            link.classList.add('is-active');
+            link.setCssStyles({
+                left: `${left.toFixed(2)}px`,
+                top: `${clampedTop.toFixed(2)}px`,
+                height: `${Math.max(2, clampedBottom - clampedTop).toFixed(2)}px`,
+            });
         }
         for (let i = ranges.length; i < this.linkEls.length; i++) {
-            this.linkEls[i].style.opacity = '0';
-            this.linkEls[i].style.pointerEvents = 'none';
+            this.linkEls[i].classList.remove('is-active');
         }
     }
 
@@ -290,7 +288,6 @@ export class RangeSelectionVisualManager {
         }
         const link = document.createElement('div');
         link.className = RANGE_SELECTION_LINK_CLASS;
-        link.style.opacity = '0';
         this.view.dom.appendChild(link);
         this.linkEls[index] = link;
         return link;

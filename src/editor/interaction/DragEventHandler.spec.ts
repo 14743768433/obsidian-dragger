@@ -211,7 +211,7 @@ describe('DragEventHandler', () => {
         expect(beginPointerDragSession).not.toHaveBeenCalled();
         const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
         expect(link).not.toBeNull();
-        expect(link?.style.opacity).toBe('1');
+        expect(link?.classList.contains('is-active')).toBe(true);
         handler.destroy();
     });
 
@@ -457,7 +457,7 @@ describe('DragEventHandler', () => {
 
         const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
         expect(link).not.toBeNull();
-        expect(link?.style.opacity).toBe('1');
+        expect(link?.classList.contains('is-active')).toBe(true);
         handler.destroy();
     });
 
@@ -617,7 +617,7 @@ describe('DragEventHandler', () => {
 
         let link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
         expect(link).not.toBeNull();
-        expect(link?.style.opacity).toBe('1');
+        expect(link?.classList.contains('is-active')).toBe(true);
 
         dispatchPointer(view.contentDOM, 'pointerdown', {
             pointerId: 42,
@@ -628,7 +628,7 @@ describe('DragEventHandler', () => {
 
         link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
         expect(link).not.toBeNull();
-        expect(link?.style.opacity).toBe('0');
+        expect(link?.classList.contains('is-active')).toBe(false);
         expect(view.dom.querySelector('.dnd-range-selected-line')).toBeNull();
         handler.destroy();
     });
@@ -675,7 +675,7 @@ describe('DragEventHandler', () => {
         });
 
         let link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
-        expect(link?.style.opacity).toBe('1');
+        expect(link?.classList.contains('is-active')).toBe(true);
 
         dispatchPointer(view.contentDOM, 'pointerdown', {
             pointerId: 62,
@@ -685,14 +685,14 @@ describe('DragEventHandler', () => {
         });
 
         link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
-        expect(link?.style.opacity).toBe('1');
+        expect(link?.classList.contains('is-active')).toBe(true);
 
         const input = document.createElement('textarea');
         view.dom.appendChild(input);
         input.dispatchEvent(new FocusEvent('focusin', { bubbles: true, cancelable: true }));
 
         link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
-        expect(link?.style.opacity).toBe('0');
+        expect(link?.classList.contains('is-active')).toBe(false);
         handler.destroy();
     });
 

@@ -35,14 +35,10 @@ export class DropIndicatorManager {
     ) {
         this.indicatorEl = document.createElement('div');
         this.indicatorEl.className = DROP_INDICATOR_CLASS;
-        this.indicatorEl.style.position = 'fixed';
-        this.indicatorEl.style.display = 'none';
         document.body.appendChild(this.indicatorEl);
 
         this.highlightEl = document.createElement('div');
         this.highlightEl.className = DROP_HIGHLIGHT_CLASS;
-        this.highlightEl.style.position = 'fixed';
-        this.highlightEl.style.display = 'none';
         document.body.appendChild(this.highlightEl);
     }
 
@@ -65,8 +61,8 @@ export class DropIndicatorManager {
         this.pendingDragInfo = null;
         this.lastEvaluatedInput = null;
         this.lastTargetInfo = null;
-        this.indicatorEl.style.display = 'none';
-        this.highlightEl.style.display = 'none';
+        this.indicatorEl.style.removeProperty('display');
+        this.highlightEl.style.removeProperty('display');
     }
 
     destroy(): void {
@@ -81,8 +77,8 @@ export class DropIndicatorManager {
             if (this.lastTargetInfo) {
                 this.renderTargetInfo(this.lastTargetInfo);
             } else {
-                this.indicatorEl.style.display = 'none';
-                this.highlightEl.style.display = 'none';
+                this.indicatorEl.style.removeProperty('display');
+                this.highlightEl.style.removeProperty('display');
             }
             this.options?.onFrameMetrics?.({
                 evaluated: false,
@@ -111,8 +107,8 @@ export class DropIndicatorManager {
         this.lastEvaluatedInput = { ...info };
         this.lastTargetInfo = targetInfo;
         if (!targetInfo) {
-            this.indicatorEl.style.display = 'none';
-            this.highlightEl.style.display = 'none';
+            this.indicatorEl.style.removeProperty('display');
+            this.highlightEl.style.removeProperty('display');
             return;
         }
         this.renderTargetInfo(targetInfo);
@@ -127,19 +123,23 @@ export class DropIndicatorManager {
         const indicatorRight = contentRect.right - contentPaddingRight;
         const indicatorWidth = Math.max(8, indicatorRight - indicatorLeft);
 
-        this.indicatorEl.style.top = `${indicatorY}px`;
-        this.indicatorEl.style.left = `${indicatorLeft}px`;
-        this.indicatorEl.style.width = `${indicatorWidth}px`;
-        this.indicatorEl.style.display = '';
+        this.indicatorEl.setCssStyles({
+            display: 'block',
+            top: `${indicatorY}px`,
+            left: `${indicatorLeft}px`,
+            width: `${indicatorWidth}px`,
+        });
 
         if (targetInfo.highlightRect) {
-            this.highlightEl.style.top = `${targetInfo.highlightRect.top}px`;
-            this.highlightEl.style.left = `${targetInfo.highlightRect.left}px`;
-            this.highlightEl.style.width = `${targetInfo.highlightRect.width}px`;
-            this.highlightEl.style.height = `${targetInfo.highlightRect.height}px`;
-            this.highlightEl.style.display = '';
+            this.highlightEl.setCssStyles({
+                display: 'block',
+                top: `${targetInfo.highlightRect.top}px`,
+                left: `${targetInfo.highlightRect.left}px`,
+                width: `${targetInfo.highlightRect.width}px`,
+                height: `${targetInfo.highlightRect.height}px`,
+            });
         } else {
-            this.highlightEl.style.display = 'none';
+            this.highlightEl.style.removeProperty('display');
         }
     }
 

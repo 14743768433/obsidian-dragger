@@ -8,7 +8,7 @@ import {
 } from './line-type-guards';
 import { nowMs } from '../utils/timing';
 import { splitBlockquotePrefix, getBlockquoteDepthFromLine } from './line-parsing';
-import { findCodeBlockRange, findMathBlockRange, FenceRange } from './fence-scanner';
+import { findCodeBlockRange, findMathBlockRange } from './fence-scanner';
 export { prewarmFenceScan } from './fence-scanner';
 
 const LIST_UNORDERED_RE = /^[-*+]\s/;
@@ -178,7 +178,6 @@ function getListItemOwnRange(doc: Text, lineNumber: number, tabSize: number): { 
     const currentInfo = parseListMarker(lineText, tabSize);
     const currentIndent = currentInfo.indentWidth;
     let endLine = lineNumber;
-    let sawBlank = false;
 
     for (let i = lineNumber + 1; i <= doc.lines; i++) {
         const nextLine = doc.line(i);
@@ -191,7 +190,6 @@ function getListItemOwnRange(doc: Text, lineNumber: number, tabSize: number): { 
                 break;
             }
             endLine = i;
-            sawBlank = true;
             continue;
         }
 
@@ -221,7 +219,6 @@ function getListItemSubtreeRange(doc: Text, lineNumber: number, tabSize: number)
     const currentInfo = parseListMarker(lineText, tabSize);
     const currentIndent = currentInfo.indentWidth;
     let endLine = lineNumber;
-    let sawBlank = false;
 
     for (let i = lineNumber + 1; i <= doc.lines; i++) {
         const nextLine = doc.line(i);
@@ -233,7 +230,6 @@ function getListItemSubtreeRange(doc: Text, lineNumber: number, tabSize: number)
                 break;
             }
             endLine = i;
-            sawBlank = true;
             continue;
         }
 
@@ -262,24 +258,6 @@ function findNextNonEmptyLine(doc: Text, fromLine: number, tabSize: number): { i
         return { isListItem: info.isListItem, indentWidth: info.indentWidth };
     }
     return null;
-}
-
-
-
-function getBlockquoteSubtreeRange(doc: Text, lineNumber: number): { startLine: number; endLine: number } {
-    const lineText = doc.line(lineNumber).text;
-    const currentDepth = getBlockquoteDepthFromLine(lineText);
-    let endLine = lineNumber;
-
-    for (let i = lineNumber + 1; i <= doc.lines; i++) {
-        const nextText = doc.line(i).text;
-        if (!isBlockquoteLine(nextText)) break;
-        const nextDepth = getBlockquoteDepthFromLine(nextText);
-        if (nextDepth < currentDepth) break;
-        endLine = i;
-    }
-
-    return { startLine: lineNumber, endLine };
 }
 
 const blockDetectionCache = new WeakMap<Text, Map<number, Map<number, BlockInfo | null>>>();

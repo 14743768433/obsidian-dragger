@@ -1,5 +1,9 @@
 /* Dragger 插件样式 */
 
+.dnd-hidden {
+    display: none !important;
+}
+
 /* 拖拽手柄 - 使用绝对定位避免挤占空间 */
 .dnd-drag-handle {
     position: absolute;
@@ -127,9 +131,15 @@
         top 45ms linear,
         height 45ms linear,
         opacity 36ms linear;
+    opacity: 0;
     pointer-events: none;
     cursor: grab;
     z-index: 10002;
+}
+
+.dnd-range-selection-link.is-active {
+    opacity: 1;
+    pointer-events: auto;
 }
 
 .dnd-range-selection-link::before {
@@ -205,6 +215,8 @@ body.dnd-mobile-gesture-lock {
 
 /* 放置位置指示器 */
 .dnd-drop-indicator {
+    position: fixed;
+    display: none;
     height: 3px;
     background: var(--dnd-drop-indicator-color, var(--interactive-accent));
     pointer-events: none;
@@ -215,6 +227,8 @@ body.dnd-mobile-gesture-lock {
 
 /* 列表块内落点高亮 */
 .dnd-drop-highlight {
+    position: fixed;
+    display: none;
     pointer-events: none;
     z-index: 9999;
     border-radius: 6px;

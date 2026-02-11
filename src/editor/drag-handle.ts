@@ -27,7 +27,6 @@ import {
     finishDragSession,
     getDragSourceBlockFromEvent,
 } from './interaction/DragTransfer';
-import { BlockInfo } from '../types';
 import { LineHandleManager } from './visual/LineHandleManager';
 import { EmbedHandleManager } from './visual/EmbedHandleManager';
 import { HandleVisibilityController } from './visual/HandleVisibilityController';

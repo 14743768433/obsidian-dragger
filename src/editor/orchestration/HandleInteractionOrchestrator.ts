@@ -2,7 +2,6 @@ import { EditorView } from '@codemirror/view';
 import { BlockInfo, DragLifecycleEvent, DragListIntent } from '../../types';
 import { createDragHandleElement } from '../core/handle-dom';
 import {
-    beginDragSession,
     finishDragSession,
     startDragFromHandle,
 } from '../interaction/DragTransfer';

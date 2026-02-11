@@ -172,7 +172,7 @@ export class LineHandleManager {
     private positionHandle(handle: HTMLElement, lineNumber: number): void {
         // Check if line is in visible range
         if (lineNumber < 1 || lineNumber > this.view.state.doc.lines) {
-            handle.style.display = 'none';
+            handle.classList.add('dnd-hidden');
             return;
         }
 
@@ -180,14 +180,16 @@ export class LineHandleManager {
         const top = getHandleTopPxForLine(this.view, lineNumber);
 
         if (left === null || top === null) {
-            handle.style.display = 'none';
+            handle.classList.add('dnd-hidden');
             return;
         }
 
-        handle.style.display = '';
+        handle.classList.remove('dnd-hidden');
         const localLeft = viewportXToEditorLocalX(this.view, left);
         const localTop = viewportYToEditorLocalY(this.view, top);
-        handle.style.left = `${Math.round(localLeft)}px`;
-        handle.style.top = `${Math.round(localTop)}px`;
+        handle.setCssStyles({
+            left: `${Math.round(localLeft)}px`,
+            top: `${Math.round(localTop)}px`,
+        });
     }
 }

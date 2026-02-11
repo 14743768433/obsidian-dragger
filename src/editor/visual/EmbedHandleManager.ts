@@ -209,11 +209,11 @@ export class EmbedHandleManager {
     private positionHandle(embedEl: HTMLElement, handle: HTMLElement): void {
         if (!this.isEmbedVisible(embedEl)) {
             handle.classList.remove('is-visible');
-            handle.style.display = 'none';
+            handle.classList.add('dnd-hidden');
             return;
         }
 
-        handle.style.display = '';
+        handle.classList.remove('dnd-hidden');
         const lineNumber = this.resolveHandleLineNumber(handle);
         const left = lineNumber
             ? getHandleLeftPxForLine(this.view, lineNumber)
@@ -222,13 +222,15 @@ export class EmbedHandleManager {
             ? (getHandleTopPxForLine(this.view, lineNumber) ?? this.getEmbedFallbackTop(embedEl))
             : this.getEmbedFallbackTop(embedEl);
         if (left === null) {
-            handle.style.display = 'none';
+            handle.classList.add('dnd-hidden');
             return;
         }
         const localLeft = viewportXToEditorLocalX(this.view, left);
         const localTop = viewportYToEditorLocalY(this.view, top);
-        handle.style.left = `${Math.round(localLeft)}px`;
-        handle.style.top = `${Math.round(localTop)}px`;
+        handle.setCssStyles({
+            left: `${Math.round(localLeft)}px`,
+            top: `${Math.round(localTop)}px`,
+        });
     }
 
     private resolveHandleLineNumber(handle: HTMLElement): number | null {

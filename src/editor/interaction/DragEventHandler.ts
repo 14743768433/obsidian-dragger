@@ -13,7 +13,6 @@ import { RangeSelectionVisualManager } from '../visual/RangeSelectionVisualManag
 import { MobileGestureController } from './MobileGestureController';
 import { PointerSessionController } from './PointerSessionController';
 import {
-    type LineRange,
     type RangeSelectionBoundary,
     type RangeSelectConfig,
     type CommittedRangeSelection,

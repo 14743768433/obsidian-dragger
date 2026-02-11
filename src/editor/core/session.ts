@@ -56,9 +56,9 @@ function removeWeakRef(set: Set<WeakRef<EditorView>>, target: EditorView): void 
 
 export function hideDropVisuals(scope: ParentNode = document): void {
     scope.querySelectorAll<HTMLElement>(DROP_INDICATOR_SELECTOR).forEach((el) => {
-        el.style.display = 'none';
+        el.style.removeProperty('display');
     });
     scope.querySelectorAll<HTMLElement>(DROP_HIGHLIGHT_SELECTOR).forEach((el) => {
-        el.style.display = 'none';
+        el.style.removeProperty('display');
     });
 }
