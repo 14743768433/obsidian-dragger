@@ -1,3 +1,4 @@
+import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { BlockInfo, LineRange } from '../../types';
 import { detectBlock } from '../core/block-detector';
@@ -151,12 +152,12 @@ export function buildDragSourceFromLineRanges(
 }
 
 export function resolveBlockBoundaryAtLine(
-    state: { doc: { lines: number; lineAt: (pos: number) => { number: number } } },
+    state: EditorState,
     lineNumber: number
 ): { startLineNumber: number; endLineNumber: number } {
     const doc = state.doc;
     const clampedLine = Math.max(1, Math.min(doc.lines, lineNumber));
-    const block = detectBlock(state as any, clampedLine);
+    const block = detectBlock(state, clampedLine);
     if (!block) {
         return {
             startLineNumber: clampedLine,
@@ -170,7 +171,7 @@ export function resolveBlockBoundaryAtLine(
 }
 
 export function resolveBlockAlignedLineRange(
-    state: { doc: { lines: number; lineAt: (pos: number) => { number: number } } },
+    state: EditorState,
     anchorStartLineNumber: number,
     anchorEndLineNumber: number,
     targetBlockStartLineNumber: number,

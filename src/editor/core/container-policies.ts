@@ -12,7 +12,7 @@ import { isBlockquoteLine, isHorizontalRuleLine } from './line-type-guards';
 type ContainerType = BlockType.ListItem | BlockType.Blockquote | BlockType.Callout;
 export type DetectBlockFn = (state: StateWithDoc, lineNumber: number) => BlockInfo | null;
 
-const defaultDetectBlock: DetectBlockFn = (state, lineNumber) => detectBlock(state as any, lineNumber);
+const defaultDetectBlock: DetectBlockFn = (state, lineNumber) => detectBlock(state, lineNumber);
 
 export interface DropRuleContext {
     slotContext: InsertionSlotContext;

@@ -9,6 +9,7 @@ import {
 import { nowMs } from '../utils/timing';
 import { splitBlockquotePrefix, getBlockquoteDepthFromLine } from './line-parsing';
 import { findCodeBlockRange, findMathBlockRange } from './fence-scanner';
+
 export { prewarmFenceScan } from './fence-scanner';
 
 const LIST_UNORDERED_RE = /^[-*+]\s/;
@@ -437,9 +438,16 @@ function detectBlockUncached(state: EditorState, lineNumber: number, tabSize: nu
 /**
  * hot path cache: drag move 每帧会重复查询同一行块信息
  */
-export function detectBlock(state: EditorState, lineNumber: number): BlockInfo | null {
-    const doc = state.doc;
-    const tabSize = state.facet(EditorState.tabSize) || 2;
+function safeTabSize(state: unknown): number {
+    if (state && typeof state === 'object' && 'facet' in state && typeof (state as EditorState).facet === 'function') {
+        try { return (state as EditorState).facet(EditorState.tabSize) || 2; } catch { /* fallback */ }
+    }
+    return 2;
+}
+
+export function detectBlock(state: EditorState | { doc: { lines: number; line: (n: number) => { text: string; from?: number; to?: number } } }, lineNumber: number): BlockInfo | null {
+    const doc = (state as EditorState).doc;
+    const tabSize = safeTabSize(state);
 
     let cacheByTabSize = blockDetectionCache.get(doc);
     if (!cacheByTabSize) {
@@ -457,7 +465,7 @@ export function detectBlock(state: EditorState, lineNumber: number): BlockInfo |
     }
 
     const startedAt = nowMs();
-    const detected = detectBlockUncached(state, lineNumber, tabSize);
+    const detected = detectBlockUncached(state as EditorState, lineNumber, tabSize);
     recordDetectBlockPerf('detect_block_uncached', nowMs() - startedAt);
     perDocCache.set(lineNumber, detected);
     return detected;
