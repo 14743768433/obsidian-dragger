@@ -157,7 +157,7 @@ export class RangeSelectionVisualManager {
         const blockStart = lineNumber - 1;
         if (blockStart < 0) return null;
         const selector = `.${DRAG_HANDLE_CLASS}[data-block-start="${blockStart}"]`;
-        const handles = Array.from(this.view.dom.querySelectorAll(selector)) as HTMLElement[];
+        const handles = Array.from(this.view.dom.querySelectorAll<HTMLElement>(selector));
         if (handles.length === 0) return null;
         return handles.find((handle) => !handle.classList.contains(EMBED_HANDLE_CLASS)) ?? handles[0] ?? null;
     }
@@ -172,7 +172,7 @@ export class RangeSelectionVisualManager {
                 ? domAtPos.node.parentElement
                 : domAtPos.node;
             if (!(base instanceof Element)) return null;
-            return (base.closest('.cm-line') as HTMLElement | null) ?? null;
+            return base.closest<HTMLElement>('.cm-line') ?? null;
         } catch {
             return null;
         }
@@ -190,8 +190,8 @@ export class RangeSelectionVisualManager {
 
     private bindScrollListener(): void {
         this.unbindScrollListener();
-        const scroller = (this.view.scrollDOM as HTMLElement | undefined)
-            ?? (this.view.dom.querySelector('.cm-scroller') as HTMLElement | null)
+        const scroller = this.view.scrollDOM
+            ?? this.view.dom.querySelector<HTMLElement>('.cm-scroller')
             ?? null;
         if (!scroller) return;
         scroller.addEventListener('scroll', this.onScroll, { passive: true });

@@ -13,7 +13,8 @@ export function isElementInsideRenderedTableCell(view: EditorView, el: HTMLEleme
 }
 
 export function isPointInsideRenderedTableCell(view: EditorView, x: number, y: number): boolean {
-    const el = document.elementFromPoint(x, y) as HTMLElement | null;
+    const rawEl = document.elementFromPoint(x, y);
+    const el = rawEl instanceof HTMLElement ? rawEl : null;
     return isElementInsideRenderedTableCell(view, el);
 }
 

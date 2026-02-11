@@ -410,11 +410,12 @@ export class DropTargetCalculator {
     }
 
     private getEmbedElementAtPoint(clientX: number, clientY: number): HTMLElement | null {
-        const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+        const rawEl = document.elementFromPoint(clientX, clientY);
+        const el = rawEl instanceof HTMLElement ? rawEl : null;
         if (el) {
-            const direct = el.closest(EMBED_BLOCK_SELECTOR) as HTMLElement | null;
+            const direct = el.closest<HTMLElement>(EMBED_BLOCK_SELECTOR);
             if (direct) {
-                return (direct.closest('.cm-embed-block') as HTMLElement | null) ?? direct;
+                return direct.closest<HTMLElement>('.cm-embed-block') ?? direct;
             }
         }
 
@@ -423,13 +424,13 @@ export class DropTargetCalculator {
         if (clientX < editorRect.left || clientX > editorRect.right) return null;
 
         const embeds = Array.from(
-            this.view.dom.querySelectorAll(EMBED_BLOCK_SELECTOR)
-        ) as HTMLElement[];
+            this.view.dom.querySelectorAll<HTMLElement>(EMBED_BLOCK_SELECTOR)
+        );
 
         let best: HTMLElement | null = null;
         let bestDist = Number.POSITIVE_INFINITY;
         for (const raw of embeds) {
-            const embed = (raw.closest('.cm-embed-block') as HTMLElement | null) ?? raw;
+            const embed = raw.closest<HTMLElement>('.cm-embed-block') ?? raw;
             const rect = embed.getBoundingClientRect();
             if (clientY >= rect.top && clientY <= rect.bottom) {
                 const centerY = (rect.top + rect.bottom) / 2;

@@ -83,7 +83,7 @@ export class DragEventHandler {
     readonly pointer: PointerSessionController;
 
     private readonly onEditorPointerDown = (e: PointerEvent) => {
-        const target = e.target as HTMLElement | null;
+        const target = e.target instanceof HTMLElement ? e.target : null;
         if (!target) return;
         const pointerType = e.pointerType || null;
         const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
@@ -110,7 +110,7 @@ export class DragEventHandler {
             this.clearCommittedRangeSelection();
         }
 
-        const handle = target.closest(`.${DRAG_HANDLE_CLASS}`) as HTMLElement | null;
+        const handle = target.closest<HTMLElement>(`.${DRAG_HANDLE_CLASS}`);
         if (handle && !handle.classList.contains(EMBED_HANDLE_CLASS)) {
             this.startPointerDragFromHandle(handle, e);
             return;
@@ -614,8 +614,8 @@ export class DragEventHandler {
     }
 
     private maybeAutoScrollRangeSelection(clientY: number): void {
-        const scroller = (this.view.scrollDOM as HTMLElement | undefined)
-            ?? (this.view.dom.querySelector('.cm-scroller') as HTMLElement | null)
+        const scroller = this.view.scrollDOM
+            ?? this.view.dom.querySelector<HTMLElement>('.cm-scroller')
             ?? null;
         if (!scroller) return;
 

@@ -120,7 +120,7 @@ export class HandleVisibilityController {
     resolveVisibleHandleFromTarget(target: EventTarget | null): HTMLElement | null {
         if (!(target instanceof HTMLElement)) return null;
 
-        const directHandle = target.closest(`.${DRAG_HANDLE_CLASS}`) as HTMLElement | null;
+        const directHandle = target.closest<HTMLElement>(`.${DRAG_HANDLE_CLASS}`);
         if (!directHandle) return null;
         if (this.view.dom.contains(directHandle) || this.deps.isManagedEmbedHandle(directHandle)) {
             return directHandle;
@@ -164,7 +164,7 @@ export class HandleVisibilityController {
 
     private resolveVisibleHandleForBlock(blockInfo: BlockInfo): HTMLElement | null {
         const selector = `.${DRAG_HANDLE_CLASS}[data-block-start="${blockInfo.startLine}"]`;
-        const candidates = Array.from(this.view.dom.querySelectorAll(selector)) as HTMLElement[];
+        const candidates = Array.from(this.view.dom.querySelectorAll<HTMLElement>(selector));
         if (candidates.length === 0) return null;
 
         const inlineHandle = candidates.find((handle) => !handle.classList.contains(EMBED_HANDLE_CLASS));

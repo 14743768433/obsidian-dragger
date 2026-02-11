@@ -3,11 +3,18 @@ import {
     getLineMap,
     primeLineMapFromTransition,
 } from '../core/line-map';
+import type { StateWithDoc } from '../core/protocol-types';
+
+interface LineMapChangeDescLike {
+    iterChanges: (
+        callback: (fromA: number, toA: number, fromB: number, toB: number, inserted: unknown) => void
+    ) => void;
+}
 
 interface PendingPrewarm {
-    previousState: any;
-    nextState: any;
-    changes: any;
+    previousState: StateWithDoc;
+    nextState: StateWithDoc;
+    changes: LineMapChangeDescLike;
     docLines: number;
 }
 

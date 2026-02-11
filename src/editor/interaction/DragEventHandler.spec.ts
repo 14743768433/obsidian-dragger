@@ -20,7 +20,7 @@ type RectLike = {
 
 const originalMatchMedia = window.matchMedia;
 const originalVibrate = (navigator as Navigator & { vibrate?: (pattern: number | number[]) => boolean }).vibrate;
-const originalElementFromPoint = document.elementFromPoint;
+let originalElementFromPoint: ((this: void, x: number, y: number) => Element | null) | undefined;
 
 function createRect(left: number, top: number, width: number, height: number): RectLike {
     return {
@@ -130,6 +130,10 @@ function dispatchPointer(
 }
 
 beforeEach(() => {
+    if (!originalElementFromPoint && typeof document.elementFromPoint === 'function') {
+        const native = document.elementFromPoint.bind(document);
+        originalElementFromPoint = (x: number, y: number) => native(x, y);
+    }
     vi.useFakeTimers();
     Object.defineProperty(window, 'matchMedia', {
         configurable: true,
@@ -209,7 +213,7 @@ describe('DragEventHandler', () => {
         });
 
         expect(beginPointerDragSession).not.toHaveBeenCalled();
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         expect(link?.classList.contains('is-active')).toBe(true);
         handler.destroy();
@@ -313,7 +317,7 @@ describe('DragEventHandler', () => {
         });
         expect(beginPointerDragSession).not.toHaveBeenCalled();
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         dispatchPointer(link!, 'pointerdown', {
             pointerId: 8,
@@ -393,7 +397,7 @@ describe('DragEventHandler', () => {
             clientY: 105,
         });
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
 
         dispatchPointer(link!, 'pointerdown', {
@@ -455,7 +459,7 @@ describe('DragEventHandler', () => {
             clientY: 90,
         });
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         expect(link?.classList.contains('is-active')).toBe(true);
         handler.destroy();
@@ -536,7 +540,7 @@ describe('DragEventHandler', () => {
         });
         expect(beginPointerDragSession).not.toHaveBeenCalled();
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         dispatchPointer(link!, 'pointerdown', {
             pointerId: 19,
@@ -615,7 +619,7 @@ describe('DragEventHandler', () => {
             clientY: 105,
         });
 
-        let link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        let link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         expect(link?.classList.contains('is-active')).toBe(true);
 
@@ -626,7 +630,7 @@ describe('DragEventHandler', () => {
             clientY: 40,
         });
 
-        link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         expect(link?.classList.contains('is-active')).toBe(false);
         expect(view.dom.querySelector('.dnd-range-selected-line')).toBeNull();
@@ -674,7 +678,7 @@ describe('DragEventHandler', () => {
             clientY: 105,
         });
 
-        let link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        let link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link?.classList.contains('is-active')).toBe(true);
 
         dispatchPointer(view.contentDOM, 'pointerdown', {
@@ -684,14 +688,14 @@ describe('DragEventHandler', () => {
             clientY: 40,
         });
 
-        link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link?.classList.contains('is-active')).toBe(true);
 
         const input = document.createElement('textarea');
         view.dom.appendChild(input);
         input.dispatchEvent(new FocusEvent('focusin', { bubbles: true, cancelable: true }));
 
-        link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link?.classList.contains('is-active')).toBe(false);
         handler.destroy();
     });
@@ -745,7 +749,7 @@ describe('DragEventHandler', () => {
             clientY: 105,
         });
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         const topBefore = Number(link?.style.top.replace('px', '') || '0');
 
@@ -823,7 +827,7 @@ describe('DragEventHandler', () => {
         });
         expect(beginPointerDragSession).not.toHaveBeenCalled();
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         dispatchPointer(link!, 'pointerdown', {
             pointerId: 10,
@@ -941,7 +945,7 @@ describe('DragEventHandler', () => {
         });
         expect(beginPointerDragSession).not.toHaveBeenCalled();
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         dispatchPointer(link!, 'pointerdown', {
             pointerId: 12,
@@ -1043,7 +1047,7 @@ describe('DragEventHandler', () => {
             clientY: 150,
         });
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
 
         dispatchPointer(link!, 'pointerdown', {
@@ -1198,7 +1202,7 @@ describe('DragEventHandler', () => {
         });
         expect(beginPointerDragSession).not.toHaveBeenCalled();
 
-        const link = view.dom.querySelector('.dnd-range-selection-link') as HTMLElement | null;
+        const link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
         expect(link).not.toBeNull();
         dispatchPointer(link!, 'pointerdown', {
             pointerId: 3,

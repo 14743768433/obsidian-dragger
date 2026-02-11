@@ -31,8 +31,8 @@ export class SemanticRefreshScheduler {
 
     bindViewportScrollFallback(): void {
         this.unbindViewportScrollFallback();
-        const scroller = (this.view.scrollDOM as HTMLElement | undefined)
-            ?? (this.view.dom.querySelector('.cm-scroller') as HTMLElement | null)
+        const scroller = this.view.scrollDOM
+            ?? this.view.dom.querySelector<HTMLElement>('.cm-scroller')
             ?? null;
         if (!scroller) return;
         scroller.addEventListener('scroll', this.onViewportScroll, { passive: true });

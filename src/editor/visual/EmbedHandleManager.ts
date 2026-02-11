@@ -94,12 +94,11 @@ export class EmbedHandleManager {
             return;
         }
 
-        const embeds = this.view.dom.querySelectorAll(EMBED_BLOCK_SELECTOR);
+        const embeds = this.view.dom.querySelectorAll<HTMLElement>(EMBED_BLOCK_SELECTOR);
         const handled = new Set<HTMLElement>();
 
         embeds.forEach((embed) => {
-            const rawEl = embed as HTMLElement;
-            const embedEl = (rawEl.closest('.cm-embed-block') as HTMLElement | null) ?? rawEl;
+            const embedEl = embed.closest<HTMLElement>('.cm-embed-block') ?? embed;
             if (handled.has(embedEl)) return;
             handled.add(embedEl);
 

@@ -20,7 +20,7 @@ function createTableDom() {
     const cell = document.createElement('td');
     const tableLine = document.createElement('div');
     tableLine.className = 'cm-line';
-    tableLine.textContent = 'table cell';
+    tableLine.textContent = 'Table cell';
 
     cell.appendChild(tableLine);
     tableWidget.appendChild(cell);

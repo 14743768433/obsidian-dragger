@@ -44,7 +44,7 @@ function rejectEntries(
     slot: InsertionSlotContext,
     reason: InsertionRuleRejectReason
 ): [RuleKey, InsertionRuleRejectReason][] {
-    return types.map((t) => [`${t}|${slot}` as RuleKey, reason]);
+    return types.map((t): [RuleKey, InsertionRuleRejectReason] => [`${t}|${slot}`, reason]);
 }
 
 const REJECT_RULES: ReadonlyMap<RuleKey, InsertionRuleRejectReason> = new Map<RuleKey, InsertionRuleRejectReason>([

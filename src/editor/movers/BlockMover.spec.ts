@@ -160,7 +160,7 @@ describe('BlockMover', () => {
         const payload = dispatch.mock.calls[0][0];
         expect(Array.isArray(payload.changes)).toBe(true);
         expect(payload.changes).toHaveLength(3);
-        const insertChange = payload.changes.find((change: any) => typeof change.insert === 'string');
+        const insertChange = payload.changes.find((change: { insert?: string }) => typeof change.insert === 'string');
         expect(insertChange?.insert).toContain('b');
         expect(insertChange?.insert).toContain('e');
         setTimeoutSpy.mockRestore();

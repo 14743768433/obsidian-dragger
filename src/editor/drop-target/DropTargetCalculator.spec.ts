@@ -7,7 +7,9 @@ import { BlockInfo, BlockType } from '../../types';
 import { parseLineWithQuote } from '../core/line-parsing';
 import { DropTargetCalculator, type DropTargetCalculatorDeps } from './DropTargetCalculator';
 
-const originalElementFromPoint = document.elementFromPoint;
+function originalElementFromPoint(this: void, x: number, y: number): Element | null {
+    return document.elementFromPoint(x, y);
+}
 
 function createViewStub(docText: string): EditorView {
     const state = EditorState.create({ doc: docText });

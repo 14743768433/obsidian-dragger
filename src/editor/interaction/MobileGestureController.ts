@@ -98,7 +98,8 @@ export class MobileGestureController {
     }
 
     suppressMobileKeyboard(target?: EventTarget | null): void {
-        const active = (target instanceof HTMLElement ? target : (document.activeElement as HTMLElement | null));
+        const rawActive = target instanceof HTMLElement ? target : document.activeElement;
+        const active = rawActive instanceof HTMLElement ? rawActive : null;
         if (!active) return;
         if (!this.shouldSuppressFocusTarget(active)) return;
 

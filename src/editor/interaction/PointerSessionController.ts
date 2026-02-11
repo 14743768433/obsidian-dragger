@@ -64,9 +64,9 @@ export class PointerSessionController {
         }
 
         for (const candidate of candidates) {
-            if (typeof (candidate as Element).setPointerCapture !== 'function') continue;
+            if (typeof candidate.setPointerCapture !== 'function') continue;
             try {
-                (candidate as Element).setPointerCapture(e.pointerId);
+                candidate.setPointerCapture(e.pointerId);
                 this.pointerCaptureTarget = candidate;
                 this.capturedPointerId = e.pointerId;
                 return;
@@ -77,10 +77,9 @@ export class PointerSessionController {
     }
 
     tryCapturePointerById(pointerId: number): void {
-        const withPointerCapture = this.view.dom as Element;
-        if (typeof withPointerCapture.setPointerCapture !== 'function') return;
+        if (typeof this.view.dom.setPointerCapture !== 'function') return;
         try {
-            withPointerCapture.setPointerCapture(pointerId);
+            this.view.dom.setPointerCapture(pointerId);
             this.pointerCaptureTarget = this.view.dom;
             this.capturedPointerId = pointerId;
         } catch {
@@ -90,10 +89,9 @@ export class PointerSessionController {
 
     releasePointerCapture(): void {
         if (!this.pointerCaptureTarget || this.capturedPointerId === null) return;
-        const target = this.pointerCaptureTarget as Element;
-        if (typeof target.releasePointerCapture === 'function') {
+        if (typeof this.pointerCaptureTarget.releasePointerCapture === 'function') {
             try {
-                target.releasePointerCapture(this.capturedPointerId);
+                this.pointerCaptureTarget.releasePointerCapture(this.capturedPointerId);
             } catch {
                 // ignore capture release failures
             }

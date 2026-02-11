@@ -3,7 +3,6 @@ import { BlockType, BlockInfo } from '../../types';
 import { getLineMap, getLineMetaAt, peekCachedLineMap } from './line-map';
 import {
     isHorizontalRuleLine,
-    isBlockquoteLine,
     isTableLine,
 } from './line-type-guards';
 import { nowMs } from '../utils/timing';

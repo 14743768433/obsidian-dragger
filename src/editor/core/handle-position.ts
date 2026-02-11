@@ -28,7 +28,7 @@ function isElementVisible(el: Element): boolean {
 }
 
 function getOwnLineNumberGutters(view: EditorView): HTMLElement[] {
-    const all = Array.from(view.dom.querySelectorAll('.cm-gutter.cm-lineNumbers, .cm-lineNumbers')) as HTMLElement[];
+    const all = Array.from(view.dom.querySelectorAll<HTMLElement>('.cm-gutter.cm-lineNumbers, .cm-lineNumbers'));
     return all.filter((gutter) => (
         isElementVisible(gutter)
         && gutter.closest('.cm-editor') === view.dom
@@ -91,7 +91,7 @@ function getLineNumberGutter(view: EditorView): HTMLElement | null {
 function getLineNumberElementCenterX(view: EditorView): number | null {
     const gutter = getLineNumberGutter(view);
     if (!gutter) return null;
-    const candidates = Array.from(gutter.querySelectorAll('.cm-gutterElement')) as HTMLElement[];
+    const candidates = Array.from(gutter.querySelectorAll<HTMLElement>('.cm-gutterElement'));
     for (const candidate of candidates) {
         const centerX = getGutterElementInnerCenterX(candidate);
         if (centerX === null) continue;
@@ -110,7 +110,7 @@ function getClosestLineNumberElementByY(view: EditorView, lineNumber: number): H
     if (!lineCoords) return null;
     const y = (lineCoords.top + lineCoords.bottom) / 2;
 
-    const candidates = Array.from(gutter.querySelectorAll('.cm-gutterElement')) as HTMLElement[];
+    const candidates = Array.from(gutter.querySelectorAll<HTMLElement>('.cm-gutterElement'));
     let bestEl: HTMLElement | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
     for (const candidate of candidates) {
@@ -144,7 +144,7 @@ function getLineNumberElementByText(view: EditorView, lineNumber: number): HTMLE
     const gutter = getLineNumberGutter(view);
     if (!gutter) return null;
     const target = String(lineNumber);
-    const candidates = Array.from(gutter.querySelectorAll('.cm-gutterElement')) as HTMLElement[];
+    const candidates = Array.from(gutter.querySelectorAll<HTMLElement>('.cm-gutterElement'));
     return candidates.find((el) => el.textContent?.trim() === target) ?? null;
 }
 
@@ -231,7 +231,7 @@ export function getInlineHandleLeftPx(view: EditorView, lineLeftPx: number, line
 }
 
 export function alignInlineHandleToHandleColumn(view: EditorView, handle: HTMLElement, lineNumber?: number): void {
-    const lineEl = handle.closest('.cm-line') as HTMLElement | null;
+    const lineEl = handle.closest<HTMLElement>('.cm-line');
     if (lineEl) {
         const lineRect = lineEl.getBoundingClientRect();
         handle.setCssStyles({

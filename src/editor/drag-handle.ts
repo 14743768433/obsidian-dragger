@@ -63,6 +63,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             private readonly lineMapPrewarmer = new LineMapPrewarmer();
             private readonly dragPerfManager: DragPerfSessionManager;
             private readonly semanticRefreshScheduler: SemanticRefreshScheduler;
+            private lastPointerPos: { x: number; y: number } | null = null;
             private readonly onDocumentPointerMove = (e: PointerEvent) => this.handleDocumentPointerMove(e);
             private readonly onSettingsUpdated = () => this.handleSettingsUpdated();
 
@@ -225,6 +226,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     const activeHandle = this.handleVisibility.getActiveHandle();
                     if (activeHandle && !activeHandle.isConnected) {
                         this.handleVisibility.setActiveVisibleHandle(null);
+                        this.reResolveActiveHandle();
                     }
                     return;
                 }
@@ -243,6 +245,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 const activeHandle2 = this.handleVisibility.getActiveHandle();
                 if (activeHandle2 && !activeHandle2.isConnected) {
                     this.handleVisibility.setActiveVisibleHandle(null);
+                    this.reResolveActiveHandle();
                 }
             }
 
@@ -272,6 +275,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             }
 
             private handleDocumentPointerMove(e: PointerEvent): void {
+                this.lastPointerPos = { x: e.clientX, y: e.clientY };
                 if (document.body.classList.contains(MOBILE_GESTURE_LOCK_CLASS)) {
                     return;
                 }
@@ -304,6 +308,19 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 // should reveal the left handle for that line.
                 const handle = this.handleVisibility.resolveVisibleHandleFromPointerWhenLineNumbersHidden(e.clientX, e.clientY);
                 this.handleVisibility.setActiveVisibleHandle(handle);
+            }
+
+            private reResolveActiveHandle(): void {
+                if (!this.lastPointerPos) return;
+                const { x, y } = this.lastPointerPos;
+                if (hasVisibleLineNumberGutter(this.view)) {
+                    if (!this.handleVisibility.isPointerInHandleInteractionZone(x, y)) return;
+                }
+                const handle = this.handleVisibility
+                    .resolveVisibleHandleFromPointerWhenLineNumbersHidden(x, y);
+                if (handle) {
+                    this.handleVisibility.setActiveVisibleHandle(handle);
+                }
             }
 
             private syncGutterClass(): void {

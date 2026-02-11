@@ -244,7 +244,7 @@ export function resolveLineNumberForRangeSelection(
 }
 
 export function getLineElementAtY(view: EditorView, clientY: number): HTMLElement | null {
-    const lines = Array.from(view.contentDOM.querySelectorAll('.cm-line')) as HTMLElement[];
+    const lines = Array.from(view.contentDOM.querySelectorAll<HTMLElement>('.cm-line'));
     if (lines.length === 0) return null;
     let best: HTMLElement | null = null;
     let bestDistance = Number.POSITIVE_INFINITY;
@@ -353,7 +353,8 @@ function resolveDomHitBoundaryForRangeSelection(
     }
 
     for (const x of probeXs) {
-        const hit = document.elementFromPoint(x, clientY) as HTMLElement | null;
+        const rawHit = document.elementFromPoint(x, clientY);
+        const hit = rawHit instanceof HTMLElement ? rawHit : null;
         if (!hit || !view.dom.contains(hit)) continue;
 
         const candidates: Node[] = [];
