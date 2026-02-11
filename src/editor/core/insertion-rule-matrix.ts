@@ -63,7 +63,7 @@ const REJECT_RULES: ReadonlyMap<RuleKey, InsertionRuleRejectReason> = new Map<Ru
     ),
 
     // quote_before: Callout blocked
-    [`${BlockType.Callout}|quote_before` as RuleKey, 'quote_boundary'],
+    ...rejectEntries([BlockType.Callout], 'quote_before', 'quote_boundary'),
 
     // quote_after: only Blockquote allowed
     ...rejectEntries(
