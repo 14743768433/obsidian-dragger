@@ -3,7 +3,7 @@
   "name": "Dragger",
   "version": "1.2.0",
   "minAppVersion": "1.0.0",
-  "description": "Drag and drop any block (paragraphs, headings, lists, etc.) to rearrange content like Notion",
+  "description": "Drag and drop any block (paragraphs, headings, lists, etc.) to rearrange content like Notion.",
   "author": "Ariestar",
   "authorUrl": "https://github.com/Ariestar",
   "isDesktopOnly": false
