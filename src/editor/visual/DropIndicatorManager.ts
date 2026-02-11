@@ -34,11 +34,11 @@ export class DropIndicatorManager {
         private readonly options?: DropIndicatorManagerOptions
     ) {
         this.indicatorEl = document.createElement('div');
-        this.indicatorEl.className = DROP_INDICATOR_CLASS;
+        this.indicatorEl.className = `${DROP_INDICATOR_CLASS} dnd-hidden`;
         document.body.appendChild(this.indicatorEl);
 
         this.highlightEl = document.createElement('div');
-        this.highlightEl.className = DROP_HIGHLIGHT_CLASS;
+        this.highlightEl.className = `${DROP_HIGHLIGHT_CLASS} dnd-hidden`;
         document.body.appendChild(this.highlightEl);
     }
 
