@@ -34,7 +34,7 @@ describe('EmbedHandleManager', () => {
     it('debounces non-urgent scans', () => {
         vi.useFakeTimers();
         const view = createViewStub();
-        const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((_cb: FrameRequestCallback) => 7);
+        const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(() => 7);
         const manager = new EmbedHandleManager(view, {
             createHandleElement: () => document.createElement('div'),
             resolveBlockInfoForEmbed: () => null,
@@ -74,7 +74,7 @@ describe('EmbedHandleManager', () => {
         manager.destroy();
 
         expect(cancelSpy).toHaveBeenCalledWith(7);
-        queued?.(0);
+        if (queued) queued(0);
         expect(rescanSpy).not.toHaveBeenCalled();
     });
 

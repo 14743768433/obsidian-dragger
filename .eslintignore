@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+*.js
+*.mjs
+*.json
+*.md
+.obsidian/
+.github/
+.git/

@@ -431,7 +431,7 @@ export class ListDropTargetCalculator {
         doc: { line: (n: number) => { text: string }; lines: number },
         lineNumber: number,
         lineMap?: LineMap,
-        memo?: ListCalcMemo
+        _memo?: ListCalcMemo
     ): number[] {
         const result: number[] = [];
 
