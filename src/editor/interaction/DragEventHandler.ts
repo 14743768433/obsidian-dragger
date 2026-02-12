@@ -389,8 +389,8 @@ export class DragEventHandler {
             currentLineNumber: anchorEndLineNumber,
             committedRangesSnapshot,
             selectionRanges: initialRanges,
-            showLinks: true,
-            highlightHandles: true,
+            showLinks: false,
+            highlightHandles: false,
         } };
         this.pointer.attachPointerListeners();
         this.emitLifecycle({
@@ -931,7 +931,10 @@ export class DragEventHandler {
         if (this.gesture.phase === 'range_selecting') {
             const rangeState = this.gesture.rangeSelect;
             if (e.pointerId === rangeState.pointerId) {
-                if (!rangeState.longPressReady) {
+                // For mouse, commit selection even on quick click (longPressReady=false)
+                // For touch, require longPressReady to be true
+                const isMouse = rangeState.pointerType === 'mouse';
+                if (!rangeState.longPressReady && !isMouse) {
                     this.abortPointerSession({
                         shouldFinishDragSession: false,
                         shouldHideDropIndicator: false,
