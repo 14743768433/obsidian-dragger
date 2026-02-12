@@ -37,18 +37,26 @@ export class RangeSelectionVisualManager {
     render(ranges: LineRange[], options?: { showLinks?: boolean; highlightHandles?: boolean }): void {
         const showLinks = options?.showLinks ?? true;
         const highlightHandles = options?.highlightHandles ?? true;
+        console.log('[Dragger Debug] RangeSelectionVisualManager.render', {
+            ranges: JSON.stringify(ranges),
+            showLinks,
+            highlightHandles,
+        });
         const normalizedRanges = this.mergeLineRanges(ranges);
         const nextLineElements = new Set<HTMLElement>();
         const nextLineNumberElements = new Set<HTMLElement>();
         const nextHandleElements = new Set<HTMLElement>();
         const doc = this.view.state.doc;
         const visibleRanges = this.view.visibleRanges ?? [{ from: 0, to: doc.length }];
+
+        let matchedLines: number[] = [];
         for (const range of visibleRanges) {
             let pos = range.from;
             while (pos <= range.to) {
                 const line = doc.lineAt(pos);
                 const lineNumber = line.number;
                 if (this.isLineNumberInRanges(lineNumber, normalizedRanges)) {
+                    matchedLines.push(lineNumber);
                     const lineEl = this.getLineElementForLine(lineNumber);
                     if (lineEl) {
                         nextLineElements.add(lineEl);
@@ -67,6 +75,7 @@ export class RangeSelectionVisualManager {
                 pos = line.to + 1;
             }
         }
+        console.log('[Dragger Debug] Matched lines:', matchedLines, 'lineElements count:', nextLineElements.size);
         this.syncSelectionElements(
             this.lineElements,
             nextLineElements,
@@ -90,6 +99,9 @@ export class RangeSelectionVisualManager {
     }
 
     clear(): void {
+        console.log('[Dragger Debug] RangeSelectionVisualManager.clear called, lineElements count:', this.lineElements.size);
+
+        // Clear tracked elements
         for (const lineEl of this.lineElements) {
             lineEl.classList.remove(RANGE_SELECTED_LINE_CLASS);
         }
@@ -104,6 +116,16 @@ export class RangeSelectionVisualManager {
             handleEl.classList.remove(RANGE_SELECTED_HANDLE_CLASS);
         }
         this.handleElements.clear();
+
+        // Also clear any remaining elements in the DOM that might have been left behind
+        // (this can happen if the document changed and elements were replaced)
+        const remainingLineElements = this.view.dom.querySelectorAll(`.${RANGE_SELECTED_LINE_CLASS}`);
+        remainingLineElements.forEach(el => el.classList.remove(RANGE_SELECTED_LINE_CLASS));
+
+        const remainingHandleElements = this.view.dom.querySelectorAll(`.${RANGE_SELECTED_HANDLE_CLASS}`);
+        remainingHandleElements.forEach(el => el.classList.remove(RANGE_SELECTED_HANDLE_CLASS));
+
+        console.log('[Dragger Debug] Cleared remaining elements - lines:', remainingLineElements.length, 'handles:', remainingHandleElements.length);
 
         this.hideLinks();
     }

@@ -153,7 +153,7 @@ export class HandleInteractionOrchestrator {
         return handle;
     }
 
-    performDropAtPoint(sourceBlock: BlockInfo, clientX: number, clientY: number, pointerType: string | null): void {
+    performDropAtPoint(sourceBlock: BlockInfo, clientX: number, clientY: number, pointerType: string | null): number | null {
         this.ensureDragPerfSession();
         const view = this.view;
         const validation = this.dropTargetCalculator.resolveValidatedDropTarget({
@@ -175,7 +175,7 @@ export class HandleInteractionOrchestrator {
                 rejectReason: validation.reason ?? 'no_target',
                 pointerType,
             });
-            return;
+            return null;
         }
 
         const targetLineNumber = validation.targetLineNumber;
@@ -203,6 +203,7 @@ export class HandleInteractionOrchestrator {
             rejectReason: null,
             pointerType,
         });
+        return targetLineNumber;
     }
 
     resolveInteractionBlockInfo(params: {

@@ -18,6 +18,7 @@ import {
     type RangeSelectConfig,
     type CommittedRangeSelection,
     type MouseRangeSelectState,
+    type LineRange,
     normalizeLineRange,
     mergeLineRanges,
     cloneLineRanges,
@@ -28,7 +29,6 @@ import {
     resolveBlockBoundaryAtLine,
 } from './RangeSelectionLogic';
 import { SmartBlockSelector } from './SmartBlockSelector';
-import type { LineRange } from '../../types';
 
 const MOBILE_DRAG_LONG_PRESS_MS = 100;
 const MOBILE_DRAG_START_MOVE_THRESHOLD_PX = 8;
@@ -74,7 +74,7 @@ export interface DragEventHandlerDeps {
     finishDragSession: () => void;
     scheduleDropIndicatorUpdate: (clientX: number, clientY: number, dragSource: BlockInfo | null, pointerType: string | null) => void;
     hideDropIndicator: () => void;
-    performDropAtPoint: (sourceBlock: BlockInfo, clientX: number, clientY: number, pointerType: string | null) => void;
+    performDropAtPoint: (sourceBlock: BlockInfo, clientX: number, clientY: number, pointerType: string | null) => number | null;
     onDragLifecycleEvent?: (event: DragLifecycleEvent) => void;
     setHiddenRangesForSelection?: (ranges: Array<{ startLineNumber: number; endLineNumber: number }>, anchorHandle: HTMLElement | null) => void;
     clearHiddenRangesForSelection?: () => void;
@@ -83,6 +83,13 @@ export interface DragEventHandlerDeps {
 export class DragEventHandler {
     private gesture: GestureState = { phase: 'idle' };
     private committedRangeSelection: CommittedRangeSelection | null = null;
+    // Store selection info to restore after drag completes
+    private pendingSelectionRestore: {
+        ranges: LineRange[];
+        anchorHandle: HTMLElement | null;
+        sourceStartLine: number;
+        sourceLineCount: number;
+    } | null = null;
     readonly rangeVisual: RangeSelectionVisualManager;
     readonly mobile: MobileGestureController;
     readonly pointer: PointerSessionController;
@@ -671,7 +678,9 @@ export class DragEventHandler {
         e.stopPropagation();
         const sourceBlock = pressState.sourceBlock;
         const pointerId = pressState.pointerId;
-        this.clearCommittedRangeSelection();
+        // Preserve selection for restoration after drag
+        const anchorHandle = this.findHandleAtLine(sourceBlock.startLine + 1);
+        this.clearCommittedRangeSelection({ preserveForDrag: true, anchorHandle });
         this.clearPointerPressState();
         this.beginPointerDrag(sourceBlock, pointerId, e.clientX, e.clientY, e.pointerType || null);
     }
@@ -709,7 +718,8 @@ export class DragEventHandler {
                     e.stopPropagation();
                     const sourceBlock = state.dragSourceBlock;
                     const pointerId = state.pointerId;
-                    this.clearCommittedRangeSelection();
+                    // Preserve selection for restoration after drag
+                    this.clearCommittedRangeSelection({ preserveForDrag: true, anchorHandle: state.sourceHandle });
                     this.clearMouseRangeSelectState();
                     this.beginPointerDrag(sourceBlock, pointerId, e.clientX, e.clientY, pointerType);
                 }
@@ -800,8 +810,34 @@ export class DragEventHandler {
         }
     }
 
-    private clearCommittedRangeSelection(): void {
+    private clearCommittedRangeSelection(options?: { preserveForDrag?: boolean; anchorHandle?: HTMLElement | null }): void {
         if (!this.committedRangeSelection) return;
+
+        console.log('[Dragger Debug] clearCommittedRangeSelection', {
+            preserveForDrag: options?.preserveForDrag,
+            currentRanges: JSON.stringify(this.committedRangeSelection.ranges),
+            anchorHandle: options?.anchorHandle,
+        });
+
+        // If preserveForDrag is true, save the selection info for restoration after drag
+        if (options?.preserveForDrag) {
+            const firstRange = this.committedRangeSelection.ranges[0];
+            const lastRange = this.committedRangeSelection.ranges[this.committedRangeSelection.ranges.length - 1];
+            if (firstRange && lastRange) {
+                const sourceLineCount = lastRange.endLineNumber - firstRange.startLineNumber + 1;
+                this.pendingSelectionRestore = {
+                    ranges: cloneLineRanges(this.committedRangeSelection.ranges),
+                    anchorHandle: options.anchorHandle ?? null,
+                    sourceStartLine: firstRange.startLineNumber,
+                    sourceLineCount,
+                };
+                console.log('[Dragger Debug] Saved pendingSelectionRestore:', {
+                    ...this.pendingSelectionRestore,
+                    ranges: JSON.stringify(this.pendingSelectionRestore.ranges),
+                });
+            }
+        }
+
         this.committedRangeSelection = null;
         this.rangeVisual.clear();
         // Restore normal handle visibility
@@ -810,12 +846,91 @@ export class DragEventHandler {
         }
     }
 
+    private restoreSelectionAfterDrop(targetStartLine: number): void {
+        if (!this.pendingSelectionRestore) return;
+
+        const { anchorHandle, sourceLineCount } = this.pendingSelectionRestore;
+
+        console.log('[Dragger Debug] restoreSelectionAfterDrop', {
+            targetStartLine,
+            sourceLineCount,
+        });
+
+        // The selection should be exactly at the target position with the same line count
+        const newStartLine = targetStartLine;
+        const newEndLine = targetStartLine + sourceLineCount - 1;
+
+        // Clamp to document bounds
+        const docLines = this.view.state.doc.lines;
+        const clampedStartLine = Math.max(1, Math.min(docLines, newStartLine));
+        const clampedEndLine = Math.max(clampedStartLine, Math.min(docLines, newEndLine));
+
+        console.log('[Dragger Debug] calculated new selection', {
+            newStartLine: clampedStartLine,
+            newEndLine: clampedEndLine,
+            docLines,
+        });
+
+        // Clear any existing selection first
+        this.rangeVisual.clear();
+        if (this.deps.clearHiddenRangesForSelection) {
+            this.deps.clearHiddenRangesForSelection();
+        }
+
+        const mergedRanges: LineRange[] = [{
+            startLineNumber: clampedStartLine,
+            endLineNumber: clampedEndLine,
+        }];
+
+        const startLine = this.view.state.doc.line(clampedStartLine);
+        const endLine = this.view.state.doc.line(clampedEndLine);
+        const newBlock: BlockInfo = {
+            type: 'paragraph',
+            startLine: clampedStartLine - 1,
+            endLine: clampedEndLine - 1,
+            from: startLine.from,
+            to: endLine.to,
+            indentLevel: 0,
+            content: '',
+        };
+
+        this.committedRangeSelection = {
+            selectedBlock: newBlock,
+            ranges: mergedRanges,
+        };
+
+        console.log('[Dragger Debug] About to render selection, mergedRanges:', JSON.stringify(mergedRanges));
+
+        // Re-render visual and hide other handles
+        this.rangeVisual.render(mergedRanges, { showLinks: false, highlightHandles: false });
+        if (this.deps.setHiddenRangesForSelection && anchorHandle) {
+            // Try to find the new anchor handle at the target position
+            const newAnchorHandle = this.findHandleAtLine(targetStartLine) ?? anchorHandle;
+            console.log('[Dragger Debug] Setting hidden ranges, newAnchorHandle:', newAnchorHandle);
+            this.deps.setHiddenRangesForSelection(mergedRanges, newAnchorHandle);
+        }
+
+        this.pendingSelectionRestore = null;
+    }
+
+    private findHandleAtLine(lineNumber: number): HTMLElement | null {
+        const blockStart = lineNumber - 1;
+        const selector = `.${DRAG_HANDLE_CLASS}[data-block-start="${blockStart}"]`;
+        const handles = this.view.dom.querySelectorAll<HTMLElement>(selector);
+        return handles[0] ?? null;
+    }
+
     private getCommittedSelectionBlock(): BlockInfo | null {
         if (!this.committedRangeSelection) return null;
         return cloneBlockInfo(this.committedRangeSelection.selectedBlock);
     }
 
     private refreshRangeSelectionVisual(): void {
+        console.log('[Dragger Debug] refreshRangeSelectionVisual called', {
+            phase: this.gesture.phase,
+            hasCommittedSelection: !!this.committedRangeSelection,
+            committedRanges: this.committedRangeSelection ? JSON.stringify(this.committedRangeSelection.ranges) : null,
+        });
         if (this.gesture.phase === 'range_selecting') {
             const state = this.gesture.rangeSelect;
             this.rangeVisual.render(state.selectionRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
@@ -911,8 +1026,10 @@ export class DragEventHandler {
         if (e.pointerId !== state.pointerId) return;
         e.preventDefault();
         e.stopPropagation();
+        let targetLineNumber: number | null = null;
         if (shouldDrop) {
-            this.deps.performDropAtPoint(state.sourceBlock, e.clientX, e.clientY, e.pointerType || null);
+            targetLineNumber = this.deps.performDropAtPoint(state.sourceBlock, e.clientX, e.clientY, e.pointerType || null);
+            console.log('[Dragger Debug] finishPointerDrag - targetLineNumber:', targetLineNumber, 'sourceBlock:', state.sourceBlock);
         }
         this.abortPointerSession({
             shouldFinishDragSession: true,
@@ -920,6 +1037,14 @@ export class DragEventHandler {
             cancelReason: shouldDrop ? null : 'pointer_cancelled',
             pointerType: e.pointerType || null,
         });
+        // Restore selection after drop if we had a pending restore and drop succeeded
+        if (shouldDrop && targetLineNumber !== null && this.pendingSelectionRestore) {
+            console.log('[Dragger Debug] Will restore selection, pendingSelectionRestore:', this.pendingSelectionRestore);
+            // Use setTimeout to ensure the document update has been processed
+            setTimeout(() => {
+                this.restoreSelectionAfterDrop(targetLineNumber!);
+            }, 0);
+        }
     }
 
     private handlePointerUp(e: PointerEvent): void {
