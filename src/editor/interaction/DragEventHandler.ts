@@ -1,4 +1,5 @@
 import { EditorView } from '@codemirror/view';
+import { EditorSelection } from '@codemirror/state';
 import { BlockInfo, DragLifecycleEvent } from '../../types';
 import {
     getHandleColumnCenterX,
@@ -419,6 +420,12 @@ export class DragEventHandler {
         if (handle) {
             handle.setAttribute('draggable', 'false');
         }
+
+        // Clear the editor's text selection to avoid visual confusion
+        const currentSelection = this.view.state.selection.main;
+        this.view.dispatch({
+            selection: EditorSelection.cursor(currentSelection.head),
+        });
 
         const anchorStartLineNumber = precomputedRanges[0].startLineNumber;
         const anchorEndLineNumber = precomputedRanges[precomputedRanges.length - 1].endLineNumber;
