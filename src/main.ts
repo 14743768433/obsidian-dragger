@@ -85,10 +85,10 @@ export default class DragNDropPlugin extends Plugin {
             body.style.removeProperty('--dnd-drop-indicator-color');
         }
 
-        const handleSize = Math.max(12, Math.min(28, this.settings.handleSize ?? 16));
+        const handleSize = Math.max(12, Math.min(36, this.settings.handleSize ?? 24));
         setHandleSizePx(handleSize);
         body.style.setProperty('--dnd-handle-size', `${handleSize}px`);
-        body.style.setProperty('--dnd-handle-core-size', `${Math.round(handleSize * 0.5)}px`);
+        body.style.setProperty('--dnd-handle-core-size', `${Math.round(handleSize * 0.65)}px`);
         body.setAttribute('data-dnd-handle-icon', this.settings.handleIcon ?? 'dot');
 
         window.dispatchEvent(new Event('dnd:settings-updated'));

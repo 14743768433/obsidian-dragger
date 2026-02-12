@@ -7,11 +7,11 @@
 /* 拖拽手柄 - 完全悬浮定位，不影响文档布局 */
 .dnd-drag-handle {
     position: absolute;
-    left: -16px;
+    left: calc(-1 * var(--dnd-handle-size, 24px));
     top: 0;
     transform: none;
-    width: var(--dnd-handle-size, 16px);
-    height: var(--dnd-handle-size, 16px);
+    width: var(--dnd-handle-size, 24px);
+    height: var(--dnd-handle-size, 24px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -34,8 +34,8 @@
 }
 
 .dnd-handle-core {
-    width: var(--dnd-handle-core-size, 8px);
-    height: var(--dnd-handle-core-size, 8px);
+    width: var(--dnd-handle-core-size, 16px);
+    height: var(--dnd-handle-core-size, 16px);
     border-radius: 999px;
     background: currentColor;
     box-shadow:
@@ -50,7 +50,7 @@
     border-radius: 0;
     background: none;
     box-shadow: none;
-    font-size: var(--dnd-handle-core-size, 8px);
+    font-size: var(--dnd-handle-core-size, 16px);
     line-height: 1;
 }
 [data-dnd-handle-icon="grip-dots"] .dnd-handle-core::before {
@@ -64,7 +64,7 @@
     border-radius: 0;
     background: none;
     box-shadow: none;
-    font-size: var(--dnd-handle-core-size, 8px);
+    font-size: var(--dnd-handle-core-size, 16px);
     line-height: 1;
 }
 [data-dnd-handle-icon="grip-lines"] .dnd-handle-core::before {

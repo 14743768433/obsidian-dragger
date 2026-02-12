@@ -29,7 +29,7 @@ export const HANDLE_INTERACTION_ZONE_PX = 64;
  * Centralised mutable config – set once per plugin load via `applySettings()`.
  */
 const handleConfig = {
-    sizePx: 16,
+    sizePx: 24,
     horizontalOffsetPx: 0,
     alignToLineNumber: true,
 };
@@ -39,7 +39,7 @@ export function getHandleSizePx(): number {
 }
 
 export function setHandleSizePx(size: number): void {
-    handleConfig.sizePx = Math.max(12, Math.min(28, size));
+    handleConfig.sizePx = Math.max(12, Math.min(36, size));
 }
 
 export function getHandleHorizontalOffsetPx(): number {

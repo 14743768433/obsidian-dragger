@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: DragNDropSettings = {
     handleColor: '#8a8a8a',
     handleVisibility: 'hover',
     handleIcon: 'dot',
-    handleSize: 16,
+    handleSize: 24,
     indicatorColorMode: 'theme',
     indicatorColor: '#7a7a7a',
     enableCrossFileDrag: false,
@@ -110,7 +110,7 @@ export class DragNDropSettingTab extends PluginSettingTab {
             .setName(i.handleSize)
             .setDesc(i.handleSizeDesc)
             .addSlider((slider) => slider
-                .setLimits(12, 28, 2)
+                .setLimits(12, 36, 2)
                 .setDynamicTooltip()
                 .setValue(this.plugin.settings.handleSize)
                 .onChange(async (value) => {
