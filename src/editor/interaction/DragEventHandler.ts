@@ -406,6 +406,7 @@ export class DragEventHandler {
             selectionRanges: initialRanges,
             showLinks: false,
             highlightHandles: false,
+            shouldClearEditorSelectionOnCommit: false,
         } };
         this.pointer.attachPointerListeners();
         this.emitLifecycle({
@@ -431,34 +432,33 @@ export class DragEventHandler {
         if (precomputedRanges.length === 0) return;
 
         const pointerType = e.pointerType || null;
+        const isMouse = pointerType === 'mouse';
         const sourceHandleDraggableAttr = handle?.getAttribute('draggable') ?? null;
 
-        e.preventDefault();
-        e.stopPropagation();
-        this.pointer.tryCapturePointer(e);
-        if (handle) {
-            handle.setAttribute('draggable', 'false');
+        if (!isMouse) {
+            e.preventDefault();
+            e.stopPropagation();
+            this.pointer.tryCapturePointer(e);
+            if (handle) {
+                handle.setAttribute('draggable', 'false');
+            }
         }
-
-        // Clear the editor's text selection to avoid visual confusion
-        const currentSelection = this.view.state.selection.main;
-        this.view.dispatch({
-            selection: EditorSelection.cursor(currentSelection.head),
-        });
 
         const anchorStartLineNumber = precomputedRanges[0].startLineNumber;
         const anchorEndLineNumber = precomputedRanges[precomputedRanges.length - 1].endLineNumber;
 
-        // For smart selection, we skip the long press wait and immediately commit
-        const timeoutId = window.setTimeout(() => {
-            if (this.gesture.phase !== 'range_selecting') return;
-            const state = this.gesture.rangeSelect;
-            if (state.pointerId !== e.pointerId) return;
-            state.longPressReady = true;
-            // Immediately commit the selection
-            this.commitRangeSelection(state);
-            this.finishRangeSelectionSession();
-        }, 0);
+        // For touch/pen smart selection, commit immediately.
+        // For mouse we keep the existing click-to-commit flow and also allow native drag to start.
+        const timeoutId = isMouse
+            ? null
+            : window.setTimeout(() => {
+                if (this.gesture.phase !== 'range_selecting') return;
+                const state = this.gesture.rangeSelect;
+                if (state.pointerId !== e.pointerId) return;
+                state.longPressReady = true;
+                this.commitRangeSelection(state);
+                this.finishRangeSelectionSession();
+            }, 0);
 
         this.gesture = {
             phase: 'range_selecting',
@@ -474,7 +474,7 @@ export class DragEventHandler {
                 pointerType,
                 dragReady: true,
                 longPressReady: false,
-                isIntercepting: true,
+                isIntercepting: !isMouse,
                 timeoutId,
                 dragTimeoutId: null,
                 sourceHandle: handle,
@@ -486,6 +486,7 @@ export class DragEventHandler {
                 selectionRanges: precomputedRanges,
                 showLinks: false,
                 highlightHandles: false,
+                shouldClearEditorSelectionOnCommit: true,
             },
         };
 
@@ -805,6 +806,12 @@ export class DragEventHandler {
     }
 
     private commitRangeSelection(state: MouseRangeSelectState): void {
+        if (state.shouldClearEditorSelectionOnCommit) {
+            const currentSelection = this.view.state.selection.main;
+            this.view.dispatch({
+                selection: EditorSelection.cursor(currentSelection.head),
+            });
+        }
         const docLines = this.view.state.doc.lines;
         const committedRanges = mergeLineRanges(docLines, state.selectionRanges);
         const committedBlock = buildDragSourceFromLineRanges(this.view.state.doc, committedRanges, state.sourceBlock);
@@ -922,6 +929,34 @@ export class DragEventHandler {
         }
 
         this.pendingSelectionRestore = null;
+    }
+
+    resolveNativeDragSourceForHandleDrag(baseBlockInfo: BlockInfo | null): BlockInfo | null {
+        if (!baseBlockInfo) return null;
+        if (!this.isMultiLineSelectionEnabled()) return baseBlockInfo;
+
+        if (this.gesture.phase === 'range_selecting') {
+            const state = this.gesture.rangeSelect;
+            if (state.pointerType === 'mouse') {
+                return cloneBlockInfo(state.selectedBlock);
+            }
+        }
+
+        const smartResult = this.smartSelector.evaluate(baseBlockInfo);
+        if (smartResult.shouldUseSmartSelection && smartResult.blockInfo) {
+            return smartResult.blockInfo;
+        }
+        return baseBlockInfo;
+    }
+
+    finalizeNativeHandleDragStart(): void {
+        if (this.gesture.phase !== 'range_selecting') return;
+        const state = this.gesture.rangeSelect;
+        if (state.pointerType !== 'mouse') return;
+
+        this.clearMouseRangeSelectState({ preserveVisual: true });
+        this.pointer.detachPointerListeners();
+        this.pointer.releasePointerCapture();
     }
 
     private queueSelectionRestoreForSourceBlock(sourceBlock: BlockInfo): void {

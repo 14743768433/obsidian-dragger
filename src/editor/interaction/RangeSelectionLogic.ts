@@ -45,6 +45,7 @@ export type MouseRangeSelectState = {
     selectionRanges: LineRange[];
     showLinks: boolean;
     highlightHandles: boolean;
+    shouldClearEditorSelectionOnCommit: boolean;
 };
 
 export function normalizeLineRange(docLines: number, startLineNumber: number, endLineNumber: number): LineRange {

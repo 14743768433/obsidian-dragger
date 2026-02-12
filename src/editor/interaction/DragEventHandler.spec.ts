@@ -145,6 +145,18 @@ function dispatchDrop(
     return event;
 }
 
+function applyTextSelection(view: EditorView, fromLine: number, toLine: number): void {
+    const doc = view.state.doc;
+    const safeFromLine = Math.max(1, Math.min(doc.lines, fromLine));
+    const safeToLine = Math.max(1, Math.min(doc.lines, toLine));
+    const anchor = doc.line(safeFromLine).from;
+    const head = doc.line(safeToLine).to;
+    (view as unknown as { state: EditorState }).state = EditorState.create({
+        doc: doc.toString(),
+        selection: { anchor, head },
+    });
+}
+
 beforeEach(() => {
     if (!originalElementFromPoint && typeof document.elementFromPoint === 'function') {
         const native = document.elementFromPoint.bind(document);
@@ -1457,6 +1469,73 @@ describe('DragEventHandler', () => {
         expect(finishDragSession).toHaveBeenCalledTimes(1);
         const lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
         expect(lines[4]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        handler.destroy();
+    });
+
+    it('maps cross-block text selection to smart drag source and keeps moved blocks selected', () => {
+        const view = createViewStub(10);
+        const handle = document.createElement('div');
+        handle.className = 'dnd-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        view.dom.appendChild(handle);
+        applyTextSelection(view, 2, 4);
+
+        const baseBlock = createBlock('- item', 1, 1);
+        const performDropAtPoint = vi.fn(() => 6);
+        const finishDragSession = vi.fn();
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: (e) => {
+                const raw = e.dataTransfer?.getData('application/dnd-block') ?? '';
+                if (!raw) return null;
+                return JSON.parse(raw) as BlockInfo;
+            },
+            getBlockInfoForHandle: () => baseBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            beginPointerDragSession: vi.fn(),
+            finishDragSession,
+            scheduleDropIndicatorUpdate: vi.fn(),
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint,
+        });
+
+        handler.attach();
+        const downEvent = dispatchPointer(handle, 'pointerdown', {
+            pointerId: 93,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+        expect(downEvent.defaultPrevented).toBe(false);
+
+        const smartSource = handler.resolveNativeDragSourceForHandleDrag(baseBlock);
+        expect(smartSource?.startLine).toBe(1);
+        expect(smartSource?.endLine).toBe(3);
+        handler.finalizeNativeHandleDragStart();
+
+        dispatchDrop(view.dom, {
+            clientX: 120,
+            clientY: 100,
+            dataTransfer: {
+                types: ['application/dnd-block'],
+                getData: (type: string) => {
+                    if (type === 'application/dnd-block') {
+                        return JSON.stringify(smartSource);
+                    }
+                    return '';
+                },
+                dropEffect: 'move',
+            },
+        });
+        vi.advanceTimersByTime(1);
+
+        expect(performDropAtPoint).toHaveBeenCalledTimes(1);
+        expect(finishDragSession).toHaveBeenCalledTimes(1);
+        const lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[5]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[6]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[7]?.classList.contains('dnd-range-selected-line')).toBe(true);
         expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);
         handler.destroy();
     });

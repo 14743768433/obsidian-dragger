@@ -65,7 +65,9 @@ export class HandleInteractionOrchestrator {
                     clientY: e.clientY,
                     fallback: getBlockInfo,
                 });
-                const sourceBlock = resolveCurrentBlock();
+                const sourceBlock = this.getDragEventHandler().resolveNativeDragSourceForHandleDrag(
+                    resolveCurrentBlock()
+                );
                 if (sourceBlock) {
                     this.handleVisibility.enterGrabVisualState(
                         sourceBlock.startLine + 1,
@@ -75,7 +77,8 @@ export class HandleInteractionOrchestrator {
                 } else {
                     this.handleVisibility.setActiveVisibleHandle(el);
                 }
-                const started = startDragFromHandle(e, this.view, () => resolveCurrentBlock(), el);
+                this.getDragEventHandler().finalizeNativeHandleDragStart();
+                const started = startDragFromHandle(e, this.view, () => sourceBlock, el);
                 if (!started) {
                     this.handleVisibility.setActiveVisibleHandle(null);
                     finishDragSession(this.view);
