@@ -129,6 +129,22 @@ function dispatchPointer(
     return event;
 }
 
+function dispatchDrop(
+    target: EventTarget,
+    init: {
+        clientX: number;
+        clientY: number;
+        dataTransfer: { types: string[]; getData: (type: string) => string; dropEffect?: string };
+    }
+): DragEvent {
+    const event = new Event('drop', { bubbles: true, cancelable: true }) as DragEvent;
+    Object.defineProperty(event, 'clientX', { value: init.clientX });
+    Object.defineProperty(event, 'clientY', { value: init.clientY });
+    Object.defineProperty(event, 'dataTransfer', { value: init.dataTransfer });
+    target.dispatchEvent(event);
+    return event;
+}
+
 beforeEach(() => {
     if (!originalElementFromPoint && typeof document.elementFromPoint === 'function') {
         const native = document.elementFromPoint.bind(document);
@@ -1347,7 +1363,7 @@ describe('DragEventHandler', () => {
         const sourceBlock = createBlock('- item', 1, 1);
         const beginPointerDragSession = vi.fn();
         const scheduleDropIndicatorUpdate = vi.fn();
-        const performDropAtPoint = vi.fn();
+        const performDropAtPoint = vi.fn(() => 4);
         const finishDragSession = vi.fn();
 
         const handler = new DragEventHandler(view, {
@@ -1383,15 +1399,65 @@ describe('DragEventHandler', () => {
             clientX: 90,
             clientY: 80,
         });
+        vi.advanceTimersByTime(1);
 
         expect(beginPointerDragSession).toHaveBeenCalledTimes(1);
         expect(scheduleDropIndicatorUpdate).toHaveBeenCalledWith(90, 80, expect.objectContaining({
             startLine: 1,
             endLine: 1,
         }), 'touch');
+        const lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);
         expect(view.dom.querySelector('.dnd-range-selection-link')).toBeNull();
         expect(performDropAtPoint).toHaveBeenCalledTimes(1);
         expect(finishDragSession).toHaveBeenCalledTimes(1);
+        handler.destroy();
+    });
+
+    it('keeps single-block selection after mouse drop event commits the move', () => {
+        const view = createViewStub(8);
+        const sourceBlock = createBlock('- item', 1, 1);
+        const performDropAtPoint = vi.fn(() => 5);
+        const finishDragSession = vi.fn();
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: (e) => {
+                const raw = e.dataTransfer?.getData('application/dnd-block') ?? '';
+                if (!raw) return null;
+                return JSON.parse(raw) as BlockInfo;
+            },
+            getBlockInfoForHandle: () => sourceBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            beginPointerDragSession: vi.fn(),
+            finishDragSession,
+            scheduleDropIndicatorUpdate: vi.fn(),
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint,
+        });
+
+        handler.attach();
+        dispatchDrop(view.dom, {
+            clientX: 120,
+            clientY: 90,
+            dataTransfer: {
+                types: ['application/dnd-block'],
+                getData: (type: string) => {
+                    if (type === 'application/dnd-block') {
+                        return JSON.stringify(sourceBlock);
+                    }
+                    return '';
+                },
+                dropEffect: 'move',
+            },
+        });
+        vi.advanceTimersByTime(1);
+
+        expect(performDropAtPoint).toHaveBeenCalledTimes(1);
+        expect(finishDragSession).toHaveBeenCalledTimes(1);
+        const lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[4]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);
         handler.destroy();
     });
 });

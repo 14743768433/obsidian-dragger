@@ -1,6 +1,6 @@
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
-import { BlockInfo, DragLifecycleEvent } from '../../types';
+import { BlockInfo, BlockType, DragLifecycleEvent } from '../../types';
 import {
     getHandleColumnCenterX,
 } from '../core/handle-position';
@@ -186,9 +186,17 @@ export class DragEventHandler {
         if (!e.dataTransfer) return;
         const sourceBlock = this.deps.getDragSourceBlock(e);
         if (!sourceBlock) return;
-        this.deps.performDropAtPoint(sourceBlock, e.clientX, e.clientY, 'mouse');
+        this.queueSelectionRestoreForSourceBlock(sourceBlock);
+        const targetLineNumber = this.deps.performDropAtPoint(sourceBlock, e.clientX, e.clientY, 'mouse');
         this.deps.hideDropIndicator();
         this.deps.finishDragSession();
+        if (targetLineNumber !== null && this.pendingSelectionRestore) {
+            setTimeout(() => {
+                this.restoreSelectionAfterDrop(targetLineNumber);
+            }, 0);
+            return;
+        }
+        this.pendingSelectionRestore = null;
     };
 
     private readonly onLostPointerCapture = (e: PointerEvent) => this.handleLostPointerCapture(e);
@@ -617,6 +625,7 @@ export class DragEventHandler {
         this.pointer.tryCapturePointerById(pointerId);
         this.pointer.attachPointerListeners();
         this.gesture = { phase: 'dragging', drag: { sourceBlock, pointerId } };
+        this.queueSelectionRestoreForSourceBlock(sourceBlock);
         this.deps.beginPointerDragSession(sourceBlock);
         this.deps.scheduleDropIndicatorUpdate(clientX, clientY, sourceBlock, pointerType);
         this.emitLifecycle({
@@ -821,12 +830,14 @@ export class DragEventHandler {
 
         // If preserveForDrag is true, save the selection info for restoration after drag
         if (options?.preserveForDrag) {
-            const firstRange = this.committedRangeSelection.ranges[0];
-            const lastRange = this.committedRangeSelection.ranges[this.committedRangeSelection.ranges.length - 1];
-            if (firstRange && lastRange) {
-                const sourceLineCount = lastRange.endLineNumber - firstRange.startLineNumber + 1;
+            const ranges = cloneLineRanges(this.committedRangeSelection.ranges);
+            const firstRange = ranges[0];
+            if (firstRange) {
+                const sourceLineCount = ranges.reduce((count, range) => {
+                    return count + Math.max(0, range.endLineNumber - range.startLineNumber + 1);
+                }, 0);
                 this.pendingSelectionRestore = {
-                    ranges: cloneLineRanges(this.committedRangeSelection.ranges),
+                    ranges,
                     anchorHandle: options.anchorHandle ?? null,
                     sourceStartLine: firstRange.startLineNumber,
                     sourceLineCount,
@@ -885,7 +896,7 @@ export class DragEventHandler {
         const startLine = this.view.state.doc.line(clampedStartLine);
         const endLine = this.view.state.doc.line(clampedEndLine);
         const newBlock: BlockInfo = {
-            type: 'paragraph',
+            type: BlockType.Paragraph,
             startLine: clampedStartLine - 1,
             endLine: clampedEndLine - 1,
             from: startLine.from,
@@ -911,6 +922,30 @@ export class DragEventHandler {
         }
 
         this.pendingSelectionRestore = null;
+    }
+
+    private queueSelectionRestoreForSourceBlock(sourceBlock: BlockInfo): void {
+        if (this.pendingSelectionRestore) return;
+        const compositeRanges = sourceBlock.compositeSelection?.ranges ?? [];
+        if (compositeRanges.length > 1) return;
+
+        const docLines = this.view.state.doc.lines;
+        const lineRanges: LineRange[] = compositeRanges.length === 1
+            ? compositeRanges.map((range) => normalizeLineRange(docLines, range.startLine + 1, range.endLine + 1))
+            : [normalizeLineRange(docLines, sourceBlock.startLine + 1, sourceBlock.endLine + 1)];
+        const mergedRanges = mergeLineRanges(docLines, lineRanges);
+        const firstRange = mergedRanges[0];
+        if (!firstRange) return;
+
+        const sourceLineCount = mergedRanges.reduce((count, range) => {
+            return count + Math.max(0, range.endLineNumber - range.startLineNumber + 1);
+        }, 0);
+        this.pendingSelectionRestore = {
+            ranges: mergedRanges,
+            anchorHandle: this.findHandleAtLine(firstRange.startLineNumber),
+            sourceStartLine: firstRange.startLineNumber,
+            sourceLineCount,
+        };
     }
 
     private findHandleAtLine(lineNumber: number): HTMLElement | null {
@@ -1044,7 +1079,9 @@ export class DragEventHandler {
             setTimeout(() => {
                 this.restoreSelectionAfterDrop(targetLineNumber!);
             }, 0);
+            return;
         }
+        this.pendingSelectionRestore = null;
     }
 
     private handlePointerUp(e: PointerEvent): void {
@@ -1211,6 +1248,9 @@ export class DragEventHandler {
         }
         if (hadDrag && shouldFinishDragSession) {
             this.deps.finishDragSession();
+        }
+        if (cancelReason) {
+            this.pendingSelectionRestore = null;
         }
         if (cancelReason && sourceBlock) {
             this.emitLifecycle({
