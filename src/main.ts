@@ -72,6 +72,19 @@ export default class DragNDropPlugin extends Plugin {
             body.style.removeProperty('--dnd-handle-color-hover');
         }
 
+        let selectionHighlightColorValue = '';
+        if (this.settings.selectionHighlightColorMode === 'theme') {
+            selectionHighlightColorValue = 'var(--interactive-accent)';
+        } else if (this.settings.selectionHighlightColor) {
+            selectionHighlightColorValue = this.settings.selectionHighlightColor;
+        }
+
+        if (selectionHighlightColorValue) {
+            body.style.setProperty('--dnd-selection-highlight-color', selectionHighlightColorValue);
+        } else {
+            body.style.removeProperty('--dnd-selection-highlight-color');
+        }
+
         let indicatorColorValue = '';
         if (this.settings.indicatorColorMode === 'theme') {
             indicatorColorValue = 'var(--interactive-accent)';

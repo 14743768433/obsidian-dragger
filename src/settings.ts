@@ -24,6 +24,10 @@ export interface DragNDropSettings {
     enableCrossFileDrag: boolean;
     // 是否启用多行选取拖拽
     enableMultiLineSelection: boolean;
+    // 选中高亮颜色模式
+    selectionHighlightColorMode: 'theme' | 'custom';
+    // 选中高亮颜色（自定义时生效）
+    selectionHighlightColor: string;
     // 手柄横向偏移量（像素）
     handleHorizontalOffsetPx: number;
     // 手柄是否与行号对齐
@@ -38,6 +42,8 @@ export const DEFAULT_SETTINGS: DragNDropSettings = {
     handleSize: 24,
     indicatorColorMode: 'theme',
     indicatorColor: '#7a7a7a',
+    selectionHighlightColorMode: 'theme',
+    selectionHighlightColor: '#4f9eff',
     enableCrossFileDrag: false,
     enableMultiLineSelection: true,
     handleHorizontalOffsetPx: 0,
@@ -139,6 +145,26 @@ export class DragNDropSettingTab extends PluginSettingTab {
                     this.plugin.settings.alignHandleToLineNumber = value;
                     await this.plugin.saveSettings();
                 }));
+
+        const selectionHighlightSetting = new Setting(containerEl)
+            .setName(i.selectionHighlightColor)
+            .setDesc(i.selectionHighlightColorDesc);
+
+        selectionHighlightSetting.addDropdown(dropdown => dropdown
+            .addOption('theme', i.optionTheme)
+            .addOption('custom', i.optionCustom)
+            .setValue(this.plugin.settings.selectionHighlightColorMode)
+            .onChange(async (value: 'theme' | 'custom') => {
+                this.plugin.settings.selectionHighlightColorMode = value;
+                await this.plugin.saveSettings();
+            }));
+
+        selectionHighlightSetting.addColorPicker(picker => picker
+            .setValue(this.plugin.settings.selectionHighlightColor)
+            .onChange(async (value) => {
+                this.plugin.settings.selectionHighlightColor = value;
+                await this.plugin.saveSettings();
+            }));
 
         const indicatorSetting = new Setting(containerEl)
             .setName(i.indicatorColor)

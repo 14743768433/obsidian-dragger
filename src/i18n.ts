@@ -34,6 +34,10 @@ const zh = {
     handleOffset: '手柄横向位置',
     handleOffsetDesc: '向左为负值，向右为正值',
 
+    // Selection highlight color
+    selectionHighlightColor: '选中高亮颜色',
+    selectionHighlightColorDesc: '选中块时行背景光晕的颜色',
+
     // Indicator color
     indicatorColor: '指示器颜色',
     indicatorColorDesc: '跟随主题强调色或自定义颜色',
@@ -74,6 +78,9 @@ const en: typeof zh = {
 
     handleOffset: 'Handle horizontal offset',
     handleOffsetDesc: 'Negative = left, positive = right',
+
+    selectionHighlightColor: 'Selection highlight color',
+    selectionHighlightColorDesc: 'Background glow color on selected blocks',
 
     indicatorColor: 'Indicator color',
     indicatorColorDesc: 'Follow theme accent or pick a custom color',

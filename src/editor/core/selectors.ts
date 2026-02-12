@@ -15,4 +15,5 @@ export const DRAG_SOURCE_LINE_NUMBER_CLASS = 'dnd-drag-source-line-number';
 export const RANGE_SELECTED_LINE_CLASS = 'dnd-range-selected-line';
 export const RANGE_SELECTED_HANDLE_CLASS = 'dnd-range-selected-handle';
 export const RANGE_SELECTION_LINK_CLASS = 'dnd-range-selection-link';
+export const SELECTION_HIGHLIGHT_LINE_CLASS = 'dnd-selection-highlight-line';
 export const MOBILE_GESTURE_LOCK_CLASS = 'dnd-mobile-gesture-lock';

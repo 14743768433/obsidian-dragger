@@ -5,6 +5,7 @@ import {
     hasVisibleLineNumberGutter,
 } from '../core/handle-position';
 import { DRAG_HANDLE_CLASS } from '../core/selectors';
+import { SelectionHighlightManager } from './HoverHighlightManager';
 import {
     HANDLE_INTERACTION_ZONE_PX,
     HOVER_HIDDEN_LINE_NUMBER_CLASS,
@@ -21,6 +22,7 @@ export class HandleVisibilityController {
     private currentHoveredLineNumber: number | null = null;
     private readonly hiddenGrabbedLineNumberEls = new Set<HTMLElement>();
     private activeHandle: HTMLElement | null = null;
+    private readonly selectionHighlight = new SelectionHighlightManager();
 
     constructor(
         private readonly view: EditorView,
@@ -106,6 +108,15 @@ export class HandleVisibilityController {
         );
         this.clearHoveredLineNumber();
         this.setGrabbedLineNumberRange(startLineNumber, endLineNumber);
+        this.selectionHighlight.highlight(this.view, startLineNumber, endLineNumber);
+    }
+
+    clearSelectionHighlight(): void {
+        this.selectionHighlight.clear();
+    }
+
+    reapplySelectionHighlight(): void {
+        this.selectionHighlight.reapply(this.view);
     }
 
     isPointerInHandleInteractionZone(clientX: number, clientY: number): boolean {

@@ -8,6 +8,7 @@ import DragNDropPlugin from '../main';
 import {
     ROOT_EDITOR_CLASS,
     MAIN_EDITOR_CONTENT_CLASS,
+    DRAG_HANDLE_CLASS,
     MOBILE_GESTURE_LOCK_CLASS,
     DRAGGING_BODY_CLASS,
 } from './core/selectors';
@@ -63,6 +64,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
             private readonly semanticRefreshScheduler: SemanticRefreshScheduler;
             private lastPointerPos: { x: number; y: number } | null = null;
             private readonly onDocumentPointerMove = (e: PointerEvent) => this.handleDocumentPointerMove(e);
+            private readonly onDocumentPointerDown = (e: PointerEvent) => this.handleDocumentPointerDown(e);
             private readonly onSettingsUpdated = () => this.handleSettingsUpdated();
 
             constructor(view: EditorView) {
@@ -189,6 +191,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                 this.dragEventHandler.attach();
                 this.semanticRefreshScheduler.bindViewportScrollFallback();
                 document.addEventListener('pointermove', this.onDocumentPointerMove, { passive: true });
+                document.addEventListener('pointerdown', this.onDocumentPointerDown, { passive: true });
                 window.addEventListener('dnd:settings-updated', this.onSettingsUpdated);
 
                 // Pre-warm fence scan during idle to ensure code/math block boundaries are ready
@@ -219,6 +222,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         this.handleVisibility.setActiveVisibleHandle(null);
                         this.reResolveActiveHandle();
                     }
+                    this.handleVisibility.reapplySelectionHighlight();
                     return;
                 }
 
@@ -238,12 +242,14 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     this.handleVisibility.setActiveVisibleHandle(null);
                     this.reResolveActiveHandle();
                 }
+                this.handleVisibility.reapplySelectionHighlight();
             }
 
             destroy(): void {
                 this.lineMapPrewarmer.clear();
                 this.semanticRefreshScheduler.destroy();
                 document.removeEventListener('pointermove', this.onDocumentPointerMove);
+                document.removeEventListener('pointerdown', this.onDocumentPointerDown);
                 window.removeEventListener('dnd:settings-updated', this.onSettingsUpdated);
                 this.handleVisibility.clearGrabbedLineNumbers();
                 this.handleVisibility.setActiveVisibleHandle(null);
@@ -262,6 +268,13 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     rejectReason: null,
                     pointerType: null,
                 });
+            }
+
+            private handleDocumentPointerDown(e: PointerEvent): void {
+                // Clear selection highlight when clicking anywhere that's not a drag handle
+                if (!(e.target instanceof HTMLElement)) return;
+                if (e.target.closest(`.${DRAG_HANDLE_CLASS}`)) return;
+                this.handleVisibility.clearSelectionHighlight();
             }
 
             private handleDocumentPointerMove(e: PointerEvent): void {

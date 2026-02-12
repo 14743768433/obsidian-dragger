@@ -76,6 +76,12 @@
     border-radius: 2px;
 }
 
+/* 选中高亮：单块拖拽时对应行的背景光晕 */
+.cm-line.dnd-selection-highlight-line {
+    background: color-mix(in srgb, var(--dnd-selection-highlight-color, var(--interactive-accent)) 12%, transparent);
+    border-radius: 4px;
+}
+
 /* 所有块共用同一显示态：由统一事件链添加 is-visible */
 .dnd-drag-handle.is-visible {
     opacity: 0.5;
@@ -113,8 +119,8 @@
         0 0 10px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 45%, transparent);
 }
 
-.markdown-source-view.mod-cm6 .cm-editor.dnd-root-editor .cm-content.dnd-main-content > .cm-line.dnd-range-selected-line {
-    background: color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+.cm-line.dnd-range-selected-line {
+    background: color-mix(in srgb, var(--dnd-selection-highlight-color, var(--interactive-accent)) 14%, transparent);
     border-radius: 4px;
 }
 
