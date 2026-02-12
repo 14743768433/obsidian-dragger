@@ -236,7 +236,7 @@ body.dnd-mobile-gesture-lock {
     pointer-events: none;
     z-index: 9999;
     border-radius: 6px;
-    background: color-mix(in srgb, var(--dnd-drop-highlight-color, var(--interactive-accent)) 14%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dnd-drop-highlight-color, var(--interactive-accent)) 36%, transparent);
+    background: color-mix(in srgb, var(--dnd-drop-indicator-color, var(--interactive-accent)) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dnd-drop-indicator-color, var(--interactive-accent)) 36%, transparent);
 }
 
