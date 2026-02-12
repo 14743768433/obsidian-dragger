@@ -387,6 +387,7 @@ export class DragEventHandler {
             currentLineNumber: anchorEndLineNumber,
             committedRangesSnapshot,
             selectionRanges: initialRanges,
+            showLinks: true,
         } };
         this.pointer.attachPointerListeners();
         this.emitLifecycle({
@@ -465,6 +466,7 @@ export class DragEventHandler {
                 currentLineNumber: anchorEndLineNumber,
                 committedRangesSnapshot: [],
                 selectionRanges: precomputedRanges,
+                showLinks: false,
             },
         };
 
@@ -781,7 +783,7 @@ export class DragEventHandler {
             selectedBlock: committedBlock,
             ranges: committedRanges,
         };
-        this.rangeVisual.render(committedRanges);
+        this.rangeVisual.render(committedRanges, state.showLinks);
     }
 
     private clearCommittedRangeSelection(): void {

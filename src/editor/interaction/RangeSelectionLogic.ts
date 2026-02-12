@@ -43,6 +43,7 @@ export type MouseRangeSelectState = {
     currentLineNumber: number;
     committedRangesSnapshot: LineRange[];
     selectionRanges: LineRange[];
+    showLinks: boolean;
 };
 
 export function normalizeLineRange(docLines: number, startLineNumber: number, endLineNumber: number): LineRange {
