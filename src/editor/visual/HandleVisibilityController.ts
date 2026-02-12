@@ -50,6 +50,8 @@ export class HandleVisibilityController {
             lineNumberEl.classList.remove(GRAB_HIDDEN_LINE_NUMBER_CLASS);
         }
         this.hiddenGrabbedLineNumberEls.clear();
+        // Grab highlight is tied to an active drag gesture and must not persist after cleanup.
+        this.selectionHighlight.clear();
     }
 
     setGrabbedLineNumberRange(startLineNumber: number, endLineNumber: number): void {
