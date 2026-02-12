@@ -59,7 +59,7 @@ export default class DragNDropPlugin extends Plugin {
 
         let colorValue = '';
         if (this.settings.handleColorMode === 'theme') {
-            colorValue = 'var(--interactive-accent)';
+            colorValue = 'var(--text-normal)';
         } else if (this.settings.handleColor) {
             colorValue = this.settings.handleColor;
         }
