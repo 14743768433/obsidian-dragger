@@ -76,6 +76,8 @@ export interface DragEventHandlerDeps {
     hideDropIndicator: () => void;
     performDropAtPoint: (sourceBlock: BlockInfo, clientX: number, clientY: number, pointerType: string | null) => void;
     onDragLifecycleEvent?: (event: DragLifecycleEvent) => void;
+    setHiddenRangesForSelection?: (ranges: Array<{ startLineNumber: number; endLineNumber: number }>, anchorHandle: HTMLElement | null) => void;
+    clearHiddenRangesForSelection?: () => void;
 }
 
 export class DragEventHandler {
@@ -474,6 +476,12 @@ export class DragEventHandler {
 
         // Immediately render the selection visual (without link line or handle highlights)
         this.rangeVisual.render(precomputedRanges, { showLinks: false, highlightHandles: false });
+
+        // Hide handles for selected blocks except the anchor handle
+        if (this.deps.setHiddenRangesForSelection) {
+            this.deps.setHiddenRangesForSelection(precomputedRanges, handle);
+        }
+
         this.pointer.attachPointerListeners();
 
         this.emitLifecycle({
@@ -792,6 +800,10 @@ export class DragEventHandler {
         if (!this.committedRangeSelection) return;
         this.committedRangeSelection = null;
         this.rangeVisual.clear();
+        // Restore normal handle visibility
+        if (this.deps.clearHiddenRangesForSelection) {
+            this.deps.clearHiddenRangesForSelection();
+        }
     }
 
     private getCommittedSelectionBlock(): BlockInfo | null {

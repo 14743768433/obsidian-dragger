@@ -179,6 +179,10 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     performDropAtPoint: (sourceBlock, clientX, clientY, pointerType) =>
                         this.orchestrator.performDropAtPoint(sourceBlock, clientX, clientY, pointerType ?? null),
                     onDragLifecycleEvent: (event) => this.orchestrator.emitDragLifecycle(event),
+                    setHiddenRangesForSelection: (ranges, anchorHandle) =>
+                        this.handleVisibility.setHiddenRangesForSelection(ranges, anchorHandle),
+                    clearHiddenRangesForSelection: () =>
+                        this.handleVisibility.clearHiddenRangesForSelection(),
                 });
 
                 this.semanticRefreshScheduler = new SemanticRefreshScheduler(this.view, {

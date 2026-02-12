@@ -23,6 +23,9 @@ export class HandleVisibilityController {
     private readonly hiddenGrabbedLineNumberEls = new Set<HTMLElement>();
     private activeHandle: HTMLElement | null = null;
     private readonly selectionHighlight = new SelectionHighlightManager();
+    // For smart block selection: hide handles in these ranges except the anchor
+    private hiddenRangesForSelection: Array<{ startLineNumber: number; endLineNumber: number }> = [];
+    private anchorHandleForSelection: HTMLElement | null = null;
 
     constructor(
         private readonly view: EditorView,
@@ -61,6 +64,45 @@ export class HandleVisibilityController {
             lineNumberEl.classList.add(GRAB_HIDDEN_LINE_NUMBER_CLASS);
             this.hiddenGrabbedLineNumberEls.add(lineNumberEl);
         }
+    }
+
+    /**
+     * Set ranges where handles should be hidden during smart block selection,
+     * except for the anchor handle which remains visible.
+     */
+    setHiddenRangesForSelection(
+        ranges: Array<{ startLineNumber: number; endLineNumber: number }>,
+        anchorHandle: HTMLElement | null
+    ): void {
+        this.hiddenRangesForSelection = ranges;
+        this.anchorHandleForSelection = anchorHandle;
+    }
+
+    /**
+     * Clear the hidden ranges for selection.
+     */
+    clearHiddenRangesForSelection(): void {
+        this.hiddenRangesForSelection = [];
+        this.anchorHandleForSelection = null;
+    }
+
+    /**
+     * Check if a handle should be hidden based on selection ranges.
+     * Returns true if the handle is within a hidden range and is not the anchor.
+     */
+    private isHandleHiddenBySelection(handle: HTMLElement): boolean {
+        if (this.hiddenRangesForSelection.length === 0) return false;
+        if (handle === this.anchorHandleForSelection) return false;
+
+        const lineNumber = this.resolveHandleLineNumber(handle);
+        if (lineNumber === null) return false;
+
+        for (const range of this.hiddenRangesForSelection) {
+            if (lineNumber >= range.startLineNumber && lineNumber <= range.endLineNumber) {
+                return true;
+            }
+        }
+        return false;
     }
 
     setActiveVisibleHandle(
@@ -133,6 +175,10 @@ export class HandleVisibilityController {
         const directHandle = target.closest<HTMLElement>(`.${DRAG_HANDLE_CLASS}`);
         if (!directHandle) return null;
         if (this.view.dom.contains(directHandle)) {
+            // Don't show handles that are hidden by selection
+            if (this.isHandleHiddenBySelection(directHandle)) {
+                return null;
+            }
             return directHandle;
         }
         return null;
@@ -151,7 +197,12 @@ export class HandleVisibilityController {
 
         const blockInfo = this.deps.getDraggableBlockAtPoint(clientX, clientY);
         if (!blockInfo) return null;
-        return this.resolveVisibleHandleForBlock(blockInfo);
+        const handle = this.resolveVisibleHandleForBlock(blockInfo);
+        // Don't show handles that are hidden by selection
+        if (handle && this.isHandleHiddenBySelection(handle)) {
+            return null;
+        }
+        return handle;
     }
 
     resolveHandleLineNumber(handle: HTMLElement): number | null {
