@@ -794,6 +794,10 @@ export class DragEventHandler {
             ranges: committedRanges,
         };
         this.rangeVisual.render(committedRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
+        // Hide handles for non-anchor blocks during selection
+        if (this.deps.setHiddenRangesForSelection) {
+            this.deps.setHiddenRangesForSelection(committedRanges, state.sourceHandle);
+        }
     }
 
     private clearCommittedRangeSelection(): void {
