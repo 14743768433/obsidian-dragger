@@ -10,6 +10,7 @@ import {
     HANDLE_INTERACTION_ZONE_PX,
     HOVER_HIDDEN_LINE_NUMBER_CLASS,
     GRAB_HIDDEN_LINE_NUMBER_CLASS,
+    BLOCK_SELECTION_ACTIVE_CLASS,
 } from '../core/constants';
 
 export interface HandleVisibilityDeps {
@@ -67,7 +68,7 @@ export class HandleVisibilityController {
     }
 
     /**
-     * Set ranges where handles should be hidden during smart block selection,
+     * Set ranges where handles should be hidden during block selection,
      * except for the anchor handle which remains visible.
      */
     setHiddenRangesForSelection(
@@ -76,33 +77,22 @@ export class HandleVisibilityController {
     ): void {
         this.hiddenRangesForSelection = ranges;
         this.anchorHandleForSelection = anchorHandle;
+        // Add body class to disable handle hover effects via CSS
+        document.body.classList.add(BLOCK_SELECTION_ACTIVE_CLASS);
+        // Immediately show the anchor handle
+        if (anchorHandle) {
+            this.setActiveVisibleHandle(anchorHandle);
+        }
     }
 
     /**
-     * Clear the hidden ranges for selection.
+     * Clear the hidden ranges for selection and restore normal handle behavior.
      */
     clearHiddenRangesForSelection(): void {
         this.hiddenRangesForSelection = [];
         this.anchorHandleForSelection = null;
-    }
-
-    /**
-     * Check if a handle should be hidden based on selection ranges.
-     * Returns true if the handle is within a hidden range and is not the anchor.
-     */
-    private isHandleHiddenBySelection(handle: HTMLElement): boolean {
-        if (this.hiddenRangesForSelection.length === 0) return false;
-        if (handle === this.anchorHandleForSelection) return false;
-
-        const lineNumber = this.resolveHandleLineNumber(handle);
-        if (lineNumber === null) return false;
-
-        for (const range of this.hiddenRangesForSelection) {
-            if (lineNumber >= range.startLineNumber && lineNumber <= range.endLineNumber) {
-                return true;
-            }
-        }
-        return false;
+        // Remove body class to re-enable handle hover effects
+        document.body.classList.remove(BLOCK_SELECTION_ACTIVE_CLASS);
     }
 
     setActiveVisibleHandle(
@@ -110,6 +100,12 @@ export class HandleVisibilityController {
         options?: { preserveHoveredLineNumber?: boolean }
     ): void {
         const preserveHoveredLineNumber = options?.preserveHoveredLineNumber === true;
+
+        // If trying to set null but we have an anchor handle for selection, keep the anchor visible
+        if (!handle && this.anchorHandleForSelection) {
+            handle = this.anchorHandleForSelection;
+        }
+
         if (this.activeHandle === handle) {
             if (!handle && !preserveHoveredLineNumber) {
                 this.clearHoveredLineNumber();
@@ -172,19 +168,27 @@ export class HandleVisibilityController {
     resolveVisibleHandleFromTarget(target: EventTarget | null): HTMLElement | null {
         if (!(target instanceof HTMLElement)) return null;
 
+        // When there's a selection, only anchor handle should be visible
+        // All other handles should be hidden
+        if (this.hiddenRangesForSelection.length > 0) {
+            return null;
+        }
+
         const directHandle = target.closest<HTMLElement>(`.${DRAG_HANDLE_CLASS}`);
         if (!directHandle) return null;
         if (this.view.dom.contains(directHandle)) {
-            // Don't show handles that are hidden by selection
-            if (this.isHandleHiddenBySelection(directHandle)) {
-                return null;
-            }
             return directHandle;
         }
         return null;
     }
 
     resolveVisibleHandleFromPointerWhenLineNumbersHidden(clientX: number, clientY: number): HTMLElement | null {
+        // When there's a selection, only anchor handle should be visible
+        // All other handles should be hidden
+        if (this.hiddenRangesForSelection.length > 0) {
+            return null;
+        }
+
         const contentRect = this.view.contentDOM.getBoundingClientRect();
         if (
             clientX < contentRect.left
@@ -197,12 +201,7 @@ export class HandleVisibilityController {
 
         const blockInfo = this.deps.getDraggableBlockAtPoint(clientX, clientY);
         if (!blockInfo) return null;
-        const handle = this.resolveVisibleHandleForBlock(blockInfo);
-        // Don't show handles that are hidden by selection
-        if (handle && this.isHandleHiddenBySelection(handle)) {
-            return null;
-        }
-        return handle;
+        return this.resolveVisibleHandleForBlock(blockInfo);
     }
 
     resolveHandleLineNumber(handle: HTMLElement): number | null {

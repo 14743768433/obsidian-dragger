@@ -23,7 +23,8 @@
     z-index: 1;
 }
 
-.dnd-drag-handle:hover {
+/* Disable hover state when block selection is active - only anchor handle should be visible */
+body:not(.dnd-block-selection-active) .dnd-drag-handle:hover {
     opacity: 1 !important;
     color: var(--dnd-handle-color-hover, var(--dnd-handle-color, var(--text-accent)));
     filter: brightness(1.08);
