@@ -26,6 +26,8 @@ import {
     resolveTargetBoundaryForRangeSelection,
     resolveBlockBoundaryAtLine,
 } from './RangeSelectionLogic';
+import { SmartBlockSelector } from './SmartBlockSelector';
+import type { LineRange } from '../../types';
 
 const MOBILE_DRAG_LONG_PRESS_MS = 100;
 const MOBILE_DRAG_START_MOVE_THRESHOLD_PX = 8;
@@ -81,6 +83,7 @@ export class DragEventHandler {
     readonly rangeVisual: RangeSelectionVisualManager;
     readonly mobile: MobileGestureController;
     readonly pointer: PointerSessionController;
+    private readonly smartSelector: SmartBlockSelector;
 
     private readonly onEditorPointerDown = (e: PointerEvent) => {
         const target = e.target instanceof HTMLElement ? e.target : null;
@@ -194,6 +197,7 @@ export class DragEventHandler {
             onDocumentVisibilityChange: () => this.handleDocumentVisibilityChange(),
             onTouchMove: (e) => this.handleTouchMove(e),
         });
+        this.smartSelector = new SmartBlockSelector(view);
     }
 
     attach(): void {
@@ -217,6 +221,22 @@ export class DragEventHandler {
         if (this.deps.isBlockInsideRenderedTableCell(blockInfo)) return;
 
         const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
+
+        // Smart block selection: if there's an editor text selection and the clicked block
+        // intersects with it, use the block-aligned selection directly
+        if (e.pointerType === 'mouse' && multiLineSelectionEnabled && e.button === 0) {
+            const smartResult = this.smartSelector.evaluate(blockInfo);
+            if (smartResult.shouldUseSmartSelection && smartResult.blockInfo) {
+                this.startRangeSelectWithPrecomputedRanges(
+                    smartResult.blockInfo,
+                    smartResult.ranges,
+                    e,
+                    handle
+                );
+                return;
+            }
+        }
+
         if (e.pointerType === 'mouse') {
             if (e.button !== 0) return;
             if (!multiLineSelectionEnabled) {
@@ -371,6 +391,83 @@ export class DragEventHandler {
         this.emitLifecycle({
             state: 'press_pending',
             sourceBlock: blockInfo,
+            targetLine: null,
+            listIntent: null,
+            rejectReason: null,
+            pointerType,
+        });
+    }
+
+    /**
+     * Start range selection with precomputed line ranges.
+     * Used for smart block selection when editor text selection is converted to block selection.
+     */
+    private startRangeSelectWithPrecomputedRanges(
+        anchorBlock: BlockInfo,
+        precomputedRanges: LineRange[],
+        e: PointerEvent,
+        handle: HTMLElement | null
+    ): void {
+        if (precomputedRanges.length === 0) return;
+
+        const pointerType = e.pointerType || null;
+        const sourceHandleDraggableAttr = handle?.getAttribute('draggable') ?? null;
+
+        e.preventDefault();
+        e.stopPropagation();
+        this.pointer.tryCapturePointer(e);
+        if (handle) {
+            handle.setAttribute('draggable', 'false');
+        }
+
+        const anchorStartLineNumber = precomputedRanges[0].startLineNumber;
+        const anchorEndLineNumber = precomputedRanges[precomputedRanges.length - 1].endLineNumber;
+
+        // For smart selection, we skip the long press wait and immediately commit
+        const timeoutId = window.setTimeout(() => {
+            if (this.gesture.phase !== 'range_selecting') return;
+            const state = this.gesture.rangeSelect;
+            if (state.pointerId !== e.pointerId) return;
+            state.longPressReady = true;
+            // Immediately commit the selection
+            this.commitRangeSelection(state);
+            this.finishRangeSelectionSession();
+        }, 0);
+
+        this.gesture = {
+            phase: 'range_selecting',
+            rangeSelect: {
+                sourceBlock: anchorBlock,
+                dragSourceBlock: cloneBlockInfo(anchorBlock),
+                selectedBlock: anchorBlock,
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
+                latestX: e.clientX,
+                latestY: e.clientY,
+                pointerType,
+                dragReady: true,
+                longPressReady: false,
+                isIntercepting: true,
+                timeoutId,
+                dragTimeoutId: null,
+                sourceHandle: handle,
+                sourceHandleDraggableAttr,
+                anchorStartLineNumber,
+                anchorEndLineNumber,
+                currentLineNumber: anchorEndLineNumber,
+                committedRangesSnapshot: [],
+                selectionRanges: precomputedRanges,
+            },
+        };
+
+        // Immediately render the selection visual
+        this.rangeVisual.render(precomputedRanges);
+        this.pointer.attachPointerListeners();
+
+        this.emitLifecycle({
+            state: 'press_pending',
+            sourceBlock: anchorBlock,
             targetLine: null,
             listIntent: null,
             rejectReason: null,
