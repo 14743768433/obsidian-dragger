@@ -34,7 +34,9 @@ export class RangeSelectionVisualManager {
         this.bindScrollListener();
     }
 
-    render(ranges: LineRange[], showLinks: boolean = true): void {
+    render(ranges: LineRange[], options?: { showLinks?: boolean; highlightHandles?: boolean }): void {
+        const showLinks = options?.showLinks ?? true;
+        const highlightHandles = options?.highlightHandles ?? true;
         const normalizedRanges = this.mergeLineRanges(ranges);
         const nextLineElements = new Set<HTMLElement>();
         const nextLineNumberElements = new Set<HTMLElement>();
@@ -55,9 +57,11 @@ export class RangeSelectionVisualManager {
                     if (lineNumberEl) {
                         nextLineNumberElements.add(lineNumberEl);
                     }
-                    const handleEl = this.getInlineHandleForLine(lineNumber);
-                    if (handleEl) {
-                        nextHandleElements.add(handleEl);
+                    if (highlightHandles) {
+                        const handleEl = this.getInlineHandleForLine(lineNumber);
+                        if (handleEl) {
+                            nextHandleElements.add(handleEl);
+                        }
                     }
                 }
                 pos = line.to + 1;

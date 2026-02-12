@@ -388,6 +388,7 @@ export class DragEventHandler {
             committedRangesSnapshot,
             selectionRanges: initialRanges,
             showLinks: true,
+            highlightHandles: true,
         } };
         this.pointer.attachPointerListeners();
         this.emitLifecycle({
@@ -467,11 +468,12 @@ export class DragEventHandler {
                 committedRangesSnapshot: [],
                 selectionRanges: precomputedRanges,
                 showLinks: false,
+                highlightHandles: false,
             },
         };
 
-        // Immediately render the selection visual (without the vertical link line)
-        this.rangeVisual.render(precomputedRanges, false);
+        // Immediately render the selection visual (without link line or handle highlights)
+        this.rangeVisual.render(precomputedRanges, { showLinks: false, highlightHandles: false });
         this.pointer.attachPointerListeners();
 
         this.emitLifecycle({
@@ -772,7 +774,7 @@ export class DragEventHandler {
             state.sourceBlock
         );
 
-        this.rangeVisual.render(state.selectionRanges);
+        this.rangeVisual.render(state.selectionRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
     }
 
     private commitRangeSelection(state: MouseRangeSelectState): void {
@@ -783,7 +785,7 @@ export class DragEventHandler {
             selectedBlock: committedBlock,
             ranges: committedRanges,
         };
-        this.rangeVisual.render(committedRanges, state.showLinks);
+        this.rangeVisual.render(committedRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
     }
 
     private clearCommittedRangeSelection(): void {
@@ -799,10 +801,13 @@ export class DragEventHandler {
 
     private refreshRangeSelectionVisual(): void {
         if (this.gesture.phase === 'range_selecting') {
-            this.rangeVisual.render(this.gesture.rangeSelect.selectionRanges);
+            const state = this.gesture.rangeSelect;
+            this.rangeVisual.render(state.selectionRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
             return;
         }
         if (this.committedRangeSelection) {
+            // For committed selections, use default (show links and handles)
+            // since we don't store these flags in committedRangeSelection
             this.rangeVisual.render(this.committedRangeSelection.ranges);
         }
     }
