@@ -468,8 +468,8 @@ export class DragEventHandler {
             },
         };
 
-        // Immediately render the selection visual
-        this.rangeVisual.render(precomputedRanges);
+        // Immediately render the selection visual (without the vertical link line)
+        this.rangeVisual.render(precomputedRanges, false);
         this.pointer.attachPointerListeners();
 
         this.emitLifecycle({
