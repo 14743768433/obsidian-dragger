@@ -120,6 +120,16 @@ body:not(.dnd-block-selection-active) .dnd-drag-handle:hover {
         0 0 10px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 45%, transparent);
 }
 
+body.dnd-block-selection-active .dnd-drag-handle.dnd-selection-handle-hidden {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+body.dnd-block-selection-active .dnd-drag-handle.dnd-selection-anchor-handle {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
 .cm-line.dnd-range-selected-line {
     background: color-mix(in srgb, var(--dnd-selection-highlight-color, var(--interactive-accent)) 14%, transparent);
     border-radius: 4px;

@@ -14,6 +14,8 @@ export type SmartSelectionResult = {
     blockInfo: BlockInfo | null;
 };
 
+export type { EditorTextSelection };
+
 /**
  * SmartBlockSelector enables text-selection-to-block-selection conversion.
  * When a user has text selected in the editor and clicks a handle within

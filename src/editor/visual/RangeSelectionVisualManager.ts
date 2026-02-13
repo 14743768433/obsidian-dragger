@@ -16,6 +16,8 @@ import {
 import { GRAB_HIDDEN_LINE_NUMBER_CLASS } from '../core/constants';
 
 const RANGE_SELECTED_LINE_NUMBER_HIDDEN_CLASS = GRAB_HIDDEN_LINE_NUMBER_CLASS;
+const LINE_RESOLUTION_RETRY_DELAY_MS = 32;
+const MAX_LINE_RESOLUTION_RETRIES = 3;
 
 export class RangeSelectionVisualManager {
     private readonly lineElements = new Set<HTMLElement>();
@@ -25,6 +27,8 @@ export class RangeSelectionVisualManager {
     private refreshRafHandle: number | null = null;
     private scrollContainer: HTMLElement | null = null;
     private readonly onScroll: () => void;
+    private lineResolutionRetryHandle: number | null = null;
+    private lineResolutionRetryCount = 0;
 
     constructor(
         private readonly view: EditorView,
@@ -79,6 +83,11 @@ export class RangeSelectionVisualManager {
             }
         }
         console.log('[Dragger Debug] Matched lines:', matchedLines, 'lineElements count:', nextLineElements.size);
+        if (matchedLines.length > 0 && nextLineElements.size === 0) {
+            this.scheduleLineResolutionRetry();
+        } else {
+            this.clearLineResolutionRetry();
+        }
         this.syncSelectionElements(
             this.lineElements,
             nextLineElements,
@@ -106,7 +115,9 @@ export class RangeSelectionVisualManager {
     }
 
     clear(): void {
+        // Add stack trace to find who is calling clear
         console.log('[Dragger Debug] RangeSelectionVisualManager.clear called, lineElements count:', this.lineElements.size);
+        console.log('[Dragger Debug] clear() stack trace:', new Error().stack);
 
         // Clear tracked elements
         for (const lineEl of this.lineElements) {
@@ -135,6 +146,7 @@ export class RangeSelectionVisualManager {
         console.log('[Dragger Debug] Cleared remaining elements - lines:', remainingLineElements.length, 'handles:', remainingHandleElements.length);
 
         this.hideLinks();
+        this.clearLineResolutionRetry();
     }
 
     private hideLinks(): void {
@@ -208,12 +220,20 @@ export class RangeSelectionVisualManager {
         if (typeof this.view.domAtPos !== 'function') return null;
         try {
             const line = this.view.state.doc.line(lineNumber);
-            const domAtPos = this.view.domAtPos(line.from);
-            const base = domAtPos.node.nodeType === Node.TEXT_NODE
-                ? domAtPos.node.parentElement
-                : domAtPos.node;
-            if (!(base instanceof Element)) return null;
-            return base.closest<HTMLElement>('.cm-line') ?? null;
+            const fromMatch = this.resolveConnectedLineFromPos(line.from);
+            if (fromMatch) return fromMatch;
+            const toMatch = this.resolveConnectedLineFromPos(line.to);
+            if (toMatch) return toMatch;
+            const coords = this.view.coordsAtPos(line.from);
+            if (!coords || typeof document.elementFromPoint !== 'function') return null;
+            const x = Math.round((coords.left + coords.right) / 2);
+            const y = Math.round((coords.top + coords.bottom) / 2);
+            const hit = document.elementFromPoint(x, y);
+            if (!(hit instanceof Element)) return null;
+            const lineEl = hit.closest<HTMLElement>('.cm-line');
+            if (!lineEl || !lineEl.isConnected) return null;
+            if (!this.view.contentDOM.contains(lineEl)) return null;
+            return lineEl;
         } catch {
             return null;
         }
@@ -226,6 +246,7 @@ export class RangeSelectionVisualManager {
         }
         this.linkEls.length = 0;
         this.cancelScheduledRefresh();
+        this.clearLineResolutionRetry();
         this.unbindScrollListener();
     }
 
@@ -267,6 +288,7 @@ export class RangeSelectionVisualManager {
         // Add class to all elements in next set (they should all have the class)
         let addedCount = 0;
         for (const el of next) {
+            if (!el.isConnected) continue;
             if (!el.classList.contains(className)) {
                 el.classList.add(className);
                 addedCount++;
@@ -276,8 +298,38 @@ export class RangeSelectionVisualManager {
 
         current.clear();
         for (const el of next) {
+            if (!el.isConnected) continue;
             current.add(el);
         }
+    }
+
+    private resolveConnectedLineFromPos(pos: number): HTMLElement | null {
+        const domAtPos = this.view.domAtPos(pos);
+        const base = domAtPos.node.nodeType === Node.TEXT_NODE
+            ? domAtPos.node.parentElement
+            : domAtPos.node;
+        if (!(base instanceof Element)) return null;
+        const lineEl = base.closest<HTMLElement>('.cm-line');
+        if (!lineEl || !lineEl.isConnected) return null;
+        if (!this.view.contentDOM.contains(lineEl)) return null;
+        return lineEl;
+    }
+
+    private scheduleLineResolutionRetry(): void {
+        if (this.lineResolutionRetryCount >= MAX_LINE_RESOLUTION_RETRIES) return;
+        if (this.lineResolutionRetryHandle !== null) return;
+        this.lineResolutionRetryCount += 1;
+        this.lineResolutionRetryHandle = window.setTimeout(() => {
+            this.lineResolutionRetryHandle = null;
+            this.scheduleRefresh();
+        }, LINE_RESOLUTION_RETRY_DELAY_MS);
+    }
+
+    private clearLineResolutionRetry(): void {
+        this.lineResolutionRetryCount = 0;
+        if (this.lineResolutionRetryHandle === null) return;
+        window.clearTimeout(this.lineResolutionRetryHandle);
+        this.lineResolutionRetryHandle = null;
     }
 
     private isLineNumberInRanges(lineNumber: number, ranges: LineRange[]): boolean {

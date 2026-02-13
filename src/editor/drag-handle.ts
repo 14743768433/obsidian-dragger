@@ -227,6 +227,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         this.reResolveActiveHandle();
                     }
                     this.handleVisibility.reapplySelectionHighlight();
+                    this.handleVisibility.reapplySelectionHandleVisibility();
                     return;
                 }
 
@@ -247,6 +248,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     this.reResolveActiveHandle();
                 }
                 this.handleVisibility.reapplySelectionHighlight();
+                this.handleVisibility.reapplySelectionHandleVisibility();
             }
 
             destroy(): void {
