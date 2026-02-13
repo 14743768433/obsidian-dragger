@@ -93,10 +93,6 @@ function summarize(values: number[]): { count: number; p50: number; p95: number;
     };
 }
 
-function serializeSnapshot(snapshot: DragPerfSnapshot): string {
-    return JSON.stringify(snapshot, null, 2);
-}
-
 export function createDragPerfSession(input: DragPerfSessionInput): DragPerfSession {
     const startedAtMs = nowMs();
     const durations = createDurationStore();
@@ -145,8 +141,6 @@ export function createDragPerfSession(input: DragPerfSessionInput): DragPerfSess
     };
 }
 
-export function logDragPerfSession(session: DragPerfSession | null, reason: string): void {
-    if (!session) return;
-    const snapshot = session.snapshot();
-    console.debug('[Dragger][Perf]', reason, serializeSnapshot(snapshot));
+export function logDragPerfSession(_session: DragPerfSession | null, _reason: string): void {
+    // no-op in normal runtime
 }

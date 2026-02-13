@@ -137,7 +137,7 @@ export class HandleInteractionOrchestrator {
             });
             const shouldPrimePointerVisual = !(
                 e.pointerType === 'mouse'
-                && !this.isMultiLineSelectionEnabled()
+                && this.isMultiLineSelectionEnabled()
             );
             if (shouldPrimePointerVisual) {
                 const blockInfo = resolveCurrentBlock();

@@ -208,8 +208,6 @@ describe('line-map', () => {
             get: summarizeDurations(getDurations),
         };
 
-        console.debug('[Dragger][PerfTest] typing_line_map', JSON.stringify(report, null, 2));
-
         expect(report.total.count).toBe(iterations);
         expect(report.prime.p95).toBeGreaterThanOrEqual(0);
         expect(report.get.p95).toBeGreaterThanOrEqual(0);

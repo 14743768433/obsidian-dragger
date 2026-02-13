@@ -227,6 +227,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                         this.reResolveActiveHandle();
                     }
                     this.handleVisibility.reapplySelectionHighlight();
+                    this.handleVisibility.reapplySelectionHandleVisibility();
                     return;
                 }
 
@@ -238,7 +239,12 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     this.refreshDecorationsAndEmbeds();
                 }
 
-                if (update.docChanged || update.geometryChanged) {
+                if (
+                    update.docChanged
+                    || update.geometryChanged
+                    || update.selectionSet
+                    || this.dragEventHandler.hasCommittedSelection()
+                ) {
                     this.dragEventHandler.refreshSelectionVisual();
                 }
                 const activeHandle2 = this.handleVisibility.getActiveHandle();
@@ -247,6 +253,7 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     this.reResolveActiveHandle();
                 }
                 this.handleVisibility.reapplySelectionHighlight();
+                this.handleVisibility.reapplySelectionHandleVisibility();
             }
 
             destroy(): void {

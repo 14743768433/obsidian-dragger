@@ -13,6 +13,9 @@ import {
     BLOCK_SELECTION_ACTIVE_CLASS,
 } from '../core/constants';
 
+const SELECTION_ANCHOR_HANDLE_CLASS = 'dnd-selection-anchor-handle';
+const SELECTION_HIDDEN_HANDLE_CLASS = 'dnd-selection-handle-hidden';
+
 export interface HandleVisibilityDeps {
     getBlockInfoForHandle: (handle: HTMLElement) => BlockInfo | null;
     getDraggableBlockAtPoint: (clientX: number, clientY: number) => BlockInfo | null;
@@ -81,9 +84,11 @@ export class HandleVisibilityController {
         this.anchorHandleForSelection = anchorHandle;
         // Add body class to disable handle hover effects via CSS
         document.body.classList.add(BLOCK_SELECTION_ACTIVE_CLASS);
+        this.reapplySelectionHandleVisibility();
         // Immediately show the anchor handle
-        if (anchorHandle) {
-            this.setActiveVisibleHandle(anchorHandle);
+        const anchor = this.getConnectedAnchorHandle();
+        if (anchor) {
+            this.setActiveVisibleHandle(anchor);
         }
     }
 
@@ -95,6 +100,7 @@ export class HandleVisibilityController {
         this.anchorHandleForSelection = null;
         // Remove body class to re-enable handle hover effects
         document.body.classList.remove(BLOCK_SELECTION_ACTIVE_CLASS);
+        this.reapplySelectionHandleVisibility();
     }
 
     setActiveVisibleHandle(
@@ -157,6 +163,40 @@ export class HandleVisibilityController {
 
     reapplySelectionHighlight(): void {
         this.selectionHighlight.reapply(this.view);
+    }
+
+    reapplySelectionHandleVisibility(): void {
+        const handles = Array.from(
+            this.view.dom.querySelectorAll<HTMLElement>(`.${DRAG_HANDLE_CLASS}`)
+        );
+        const hasSelectionLock = this.hiddenRangesForSelection.length > 0;
+        const anchorHandle = this.getConnectedAnchorHandle();
+        for (const handle of handles) {
+            if (!this.view.dom.contains(handle)) continue;
+            if (!hasSelectionLock) {
+                handle.classList.remove(SELECTION_ANCHOR_HANDLE_CLASS, SELECTION_HIDDEN_HANDLE_CLASS);
+                continue;
+            }
+            if (anchorHandle && handle === anchorHandle) {
+                handle.classList.add(SELECTION_ANCHOR_HANDLE_CLASS);
+                handle.classList.remove(SELECTION_HIDDEN_HANDLE_CLASS);
+                continue;
+            }
+            handle.classList.remove(SELECTION_ANCHOR_HANDLE_CLASS);
+            handle.classList.add(SELECTION_HIDDEN_HANDLE_CLASS);
+            if (this.activeHandle === handle) {
+                handle.classList.remove('is-visible');
+                this.activeHandle = null;
+            }
+        }
+        if (!hasSelectionLock) return;
+        if (anchorHandle) {
+            anchorHandle.classList.add(SELECTION_ANCHOR_HANDLE_CLASS);
+            anchorHandle.classList.remove(SELECTION_HIDDEN_HANDLE_CLASS);
+            this.anchorHandleForSelection = anchorHandle;
+            return;
+        }
+        this.anchorHandleForSelection = null;
     }
 
     isPointerInHandleInteractionZone(clientX: number, clientY: number): boolean {
@@ -230,6 +270,19 @@ export class HandleVisibilityController {
         if (candidates.length === 0) return null;
 
         return candidates[0] ?? null;
+    }
+
+    private getConnectedAnchorHandle(): HTMLElement | null {
+        if (this.anchorHandleForSelection && this.anchorHandleForSelection.isConnected) {
+            return this.anchorHandleForSelection;
+        }
+        if (this.hiddenRangesForSelection.length === 0) return null;
+        const firstRange = this.hiddenRangesForSelection[0];
+        if (!firstRange) return null;
+        const blockStart = firstRange.startLineNumber - 1;
+        const selector = `.${DRAG_HANDLE_CLASS}[data-block-start="${blockStart}"]`;
+        const resolved = this.view.dom.querySelector<HTMLElement>(selector);
+        return resolved ?? null;
     }
 
     private setHoveredLineNumber(lineNumber: number): void {

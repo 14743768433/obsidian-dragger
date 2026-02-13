@@ -1,6 +1,10 @@
 import type { EditorView } from '@codemirror/view';
 import type { LineRange } from '../../../types';
-import { resolveBlockBoundaryAtLine, resolveBlockAlignedLineRange } from '../../interaction/RangeSelectionLogic';
+import {
+    mergeLineRanges,
+    resolveBlockAlignedLineRange,
+    resolveBlockBoundaryAtLine,
+} from '../../interaction/RangeSelectionLogic';
 
 export type EditorTextSelection = {
     from: number;
@@ -22,33 +26,41 @@ export class EditorSelectionBridge {
      * @returns Selection info if there's a valid non-empty selection, null otherwise
      */
     getTextSelection(): EditorTextSelection | null {
-        const selection = this.view.state.selection;
-        const main = selection.main;
+        return this.getTextSelections()[0] ?? null;
+    }
 
-        // Empty selection (just cursor position) is not a valid selection
-        if (main.empty) {
-            return null;
-        }
-
+    /**
+     * Get all non-empty text selections in the editor.
+     * Supports multi-range selections (e.g. multiple carets/ranges).
+     */
+    getTextSelections(): EditorTextSelection[] {
         const doc = this.view.state.doc;
-        const fromLine = doc.lineAt(main.from).number;
-        const toLine = doc.lineAt(main.to).number;
+        const ranges = this.view.state.selection.ranges;
+        const selections: EditorTextSelection[] = [];
 
-        return {
-            from: main.from,
-            to: main.to,
-            fromLine,
-            toLine,
-        };
+        for (const range of ranges) {
+            if (range.empty) continue;
+            const fromLine = doc.lineAt(range.from).number;
+            const toLine = doc.lineAt(range.to).number;
+            selections.push({
+                from: range.from,
+                to: range.to,
+                fromLine,
+                toLine,
+            });
+        }
+        return selections;
     }
 
     /**
      * Check if a line number is within the current editor selection.
      */
     isLineInSelection(lineNumber: number): boolean {
-        const selection = this.getTextSelection();
-        if (!selection) return false;
-        return lineNumber >= selection.fromLine && lineNumber <= selection.toLine;
+        const selections = this.getTextSelections();
+        if (selections.length === 0) return false;
+        return selections.some((selection) => (
+            lineNumber >= selection.fromLine && lineNumber <= selection.toLine
+        ));
     }
 
     /**
@@ -57,28 +69,32 @@ export class EditorSelectionBridge {
      * @returns Block-aligned line ranges, or null if no valid selection
      */
     resolveBlockAlignedSelection(): LineRange[] | null {
-        const selection = this.getTextSelection();
-        if (!selection) return null;
+        const selections = this.getTextSelections();
+        if (selections.length === 0) return null;
 
         const state = this.view.state;
+        const docLines = state.doc.lines;
+        const ranges: LineRange[] = [];
 
-        // Get the block boundaries at the selection start and end
-        const startBoundary = resolveBlockBoundaryAtLine(state, selection.fromLine);
-        const endBoundary = resolveBlockBoundaryAtLine(state, selection.toLine);
+        for (const selection of selections) {
+            // Get the block boundaries at the selection start and end
+            const startBoundary = resolveBlockBoundaryAtLine(state, selection.fromLine);
+            const endBoundary = resolveBlockBoundaryAtLine(state, selection.toLine);
 
-        // Resolve to block-aligned range
-        const aligned = resolveBlockAlignedLineRange(
-            state,
-            startBoundary.startLineNumber,
-            startBoundary.endLineNumber,
-            endBoundary.startLineNumber,
-            endBoundary.endLineNumber
-        );
-
-        return [{
-            startLineNumber: aligned.startLineNumber,
-            endLineNumber: aligned.endLineNumber,
-        }];
+            // Resolve to block-aligned range
+            const aligned = resolveBlockAlignedLineRange(
+                state,
+                startBoundary.startLineNumber,
+                startBoundary.endLineNumber,
+                endBoundary.startLineNumber,
+                endBoundary.endLineNumber
+            );
+            ranges.push({
+                startLineNumber: aligned.startLineNumber,
+                endLineNumber: aligned.endLineNumber,
+            });
+        }
+        return mergeLineRanges(docLines, ranges);
     }
 
     /**
@@ -88,11 +104,27 @@ export class EditorSelectionBridge {
      * @returns Block-aligned ranges if the line intersects, null otherwise
      */
     getBlockAlignedRangeIfIntersecting(lineNumber: number): LineRange[] | null {
-        const selection = this.getTextSelection();
-        if (!selection) return null;
+        return this.getBlockAlignedRangeIfRangeIntersecting(lineNumber, lineNumber);
+    }
 
-        // Check if the line is within the selection range
-        if (!this.isLineInSelection(lineNumber)) return null;
+    /**
+     * Check if a line range intersects with the editor selection.
+     * If it does, return the block-aligned selection ranges.
+     * @param startLineNumber Inclusive start line number (1-indexed)
+     * @param endLineNumber Inclusive end line number (1-indexed)
+     */
+    getBlockAlignedRangeIfRangeIntersecting(startLineNumber: number, endLineNumber: number): LineRange[] | null {
+        const selections = this.getTextSelections();
+        if (selections.length === 0) return null;
+
+        const safeStart = Math.min(startLineNumber, endLineNumber);
+        const safeEnd = Math.max(startLineNumber, endLineNumber);
+
+        // Trigger only when clicked range intersects at least one text selection range.
+        const intersects = selections.some((selection) => (
+            safeEnd >= selection.fromLine && safeStart <= selection.toLine
+        ));
+        if (!intersects) return null;
 
         // Return the block-aligned selection
         return this.resolveBlockAlignedSelection();

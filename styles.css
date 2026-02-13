@@ -120,6 +120,16 @@ body:not(.dnd-block-selection-active) .dnd-drag-handle:hover {
         0 0 10px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 45%, transparent);
 }
 
+body.dnd-block-selection-active .dnd-drag-handle.dnd-selection-handle-hidden {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+body.dnd-block-selection-active .dnd-drag-handle.dnd-selection-anchor-handle {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
 .cm-line.dnd-range-selected-line {
     background: color-mix(in srgb, var(--dnd-selection-highlight-color, var(--interactive-accent)) 14%, transparent);
     border-radius: 4px;
@@ -127,11 +137,13 @@ body:not(.dnd-block-selection-active) .dnd-drag-handle:hover {
 
 .dnd-range-selection-link {
     position: absolute;
-    width: 4px;
+    width: 3px;
     transform: translateX(-50%);
     border-radius: 999px;
-    background-color: var(--dnd-handle-color, var(--interactive-accent));
-    box-shadow: 0 0 6px color-mix(in srgb, var(--dnd-handle-color, var(--interactive-accent)) 36%, transparent);
+    /* Use a more reliable color fallback chain to avoid "black sidebar" in light themes.
+       Fallback order: custom var -> text-accent -> interactive-accent -> explicit purple */
+    background-color: var(--dnd-selection-highlight-color, var(--text-accent, var(--interactive-accent, #7c3aed)));
+    box-shadow: 0 0 4px color-mix(in srgb, var(--dnd-selection-highlight-color, var(--text-accent, var(--interactive-accent, #7c3aed))) 28%, transparent);
     will-change: left, top, height, opacity;
     transition:
         left 45ms linear,
@@ -240,4 +252,3 @@ body.dnd-mobile-gesture-lock {
     background: color-mix(in srgb, var(--dnd-drop-indicator-color, var(--interactive-accent)) 14%, transparent);
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--dnd-drop-indicator-color, var(--interactive-accent)) 36%, transparent);
 }
-

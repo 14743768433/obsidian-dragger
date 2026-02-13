@@ -1,6 +1,6 @@
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
-import { BlockInfo, BlockType, DragLifecycleEvent } from '../../types';
+import { BlockInfo, DragLifecycleEvent } from '../../types';
 import {
     getHandleColumnCenterX,
 } from '../core/handle-position';
@@ -28,7 +28,7 @@ import {
     resolveTargetBoundaryForRangeSelection,
     resolveBlockBoundaryAtLine,
 } from './RangeSelectionLogic';
-import { SmartBlockSelector } from './SmartBlockSelector';
+import { SmartBlockSelector, SmartSelectionResult, EditorTextSelection } from './SmartBlockSelector';
 
 const MOBILE_DRAG_LONG_PRESS_MS = 100;
 const MOBILE_DRAG_START_MOVE_THRESHOLD_PX = 8;
@@ -38,6 +38,9 @@ const MOUSE_RANGE_SELECT_LONG_PRESS_MS = 260;
 const MOUSE_RANGE_SELECT_CANCEL_MOVE_THRESHOLD_PX = 12;
 const RANGE_SELECTION_GRIP_HIT_PADDING_PX = 20;
 const RANGE_SELECTION_GRIP_HIT_X_PADDING_PX = 28;
+const SMART_SELECTION_REFRESH_CLEAR_GUARD_MS = 500;
+const SMART_SELECTION_POINTERDOWN_CLEAR_GUARD_MS = 220;
+const SMART_SELECTION_SAME_EVENT_TOLERANCE_MS = 1;
 
 type PointerDragData = {
     sourceBlock: BlockInfo;
@@ -83,9 +86,18 @@ export interface DragEventHandlerDeps {
 export class DragEventHandler {
     private gesture: GestureState = { phase: 'idle' };
     private committedRangeSelection: CommittedRangeSelection | null = null;
+    private lastCommittedSelectionSource: 'smart_mouse' | 'other' = 'other';
+    private lastCommittedSelectionAtMs = 0;
+    private lastCommittedSelectionPointerId: number | null = null;
+    private lastCommittedSelectionEventTimeStamp: number | null = null;
+    private lastPointerType: string | null = null;
+    private pendingSelectionSnapshot: EditorTextSelection[] | null = null;
+    private pendingSmartCommitEventTimeStamp: number | null = null;
     // Store selection info to restore after drag completes
     private pendingSelectionRestore: {
         ranges: LineRange[];
+        rangeLineSpans: number[];
+        sourceBlockTemplate: BlockInfo;
         anchorHandle: HTMLElement | null;
         sourceStartLine: number;
         sourceLineCount: number;
@@ -94,14 +106,32 @@ export class DragEventHandler {
     readonly mobile: MobileGestureController;
     readonly pointer: PointerSessionController;
     private readonly smartSelector: SmartBlockSelector;
+    // Selection snapshot captured at pointerdown start, before browser might clear it
+    private selectionSnapshotAtPointerDown: SmartSelectionResult | null = null;
 
     private readonly onEditorPointerDown = (e: PointerEvent) => {
+        // CRITICAL: Capture editor selection snapshot IMMEDIATELY at pointerdown start.
+        // The browser/editor may clear the text selection during event processing,
+        // so we must capture it before any other logic runs.
+        this.selectionSnapshotAtPointerDown = null;
+        this.pendingSelectionSnapshot = null;
+        this.pendingSmartCommitEventTimeStamp = null;
+        const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
+        if (multiLineSelectionEnabled && e.button === 0) {
+            const snapshot = this.smartSelector.captureSelectionSnapshot();
+            if (snapshot.length > 0) {
+                // Store snapshot for later use in startPointerDragFromHandle
+                // We'll evaluate it when we know which block was clicked
+                this.pendingSelectionSnapshot = snapshot;
+            }
+        }
+
         const target = e.target instanceof HTMLElement ? e.target : null;
         if (!target) return;
         const pointerType = e.pointerType || null;
-        const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
+        this.lastPointerType = pointerType;
         if (!multiLineSelectionEnabled) {
-            this.clearCommittedRangeSelection();
+            this.clearCommittedRangeSelection({ reason: 'feature_disabled' });
         }
         const canHandleCommittedSelection = (
             multiLineSelectionEnabled
@@ -110,7 +140,13 @@ export class DragEventHandler {
             && !!this.committedRangeSelection
         );
 
-        if (canHandleCommittedSelection && this.isCommittedSelectionGripHit(target, e.clientX, e.clientY, pointerType)) {
+        if (
+            canHandleCommittedSelection
+            && (
+                this.isCommittedSelectionGripHit(target, e.clientX, e.clientY, pointerType)
+                || this.isCommittedSelectionHandleHit(target)
+            )
+        ) {
             const committedBlock = this.getCommittedSelectionBlock();
             if (committedBlock) {
                 this.startPointerPressDrag(committedBlock, e, {
@@ -120,11 +156,18 @@ export class DragEventHandler {
             }
         }
         if (canHandleCommittedSelection && this.shouldClearCommittedSelectionOnPointerDown(target, e.clientX, pointerType)) {
-            this.clearCommittedRangeSelection();
+            this.clearCommittedRangeSelection({
+                reason: 'pointerdown_outside_selection',
+                pointerId: e.pointerId,
+                eventTimeStamp: e.timeStamp,
+            });
         }
 
         const handle = target.closest<HTMLElement>(`.${DRAG_HANDLE_CLASS}`);
         if (handle && !handle.classList.contains(EMBED_HANDLE_CLASS)) {
+            // Stop propagation immediately when clicking handle to prevent
+            // other handlers from clearing the editor selection
+            e.stopPropagation();
             this.startPointerDragFromHandle(handle, e);
             return;
         }
@@ -190,7 +233,7 @@ export class DragEventHandler {
         const targetLineNumber = this.deps.performDropAtPoint(sourceBlock, e.clientX, e.clientY, 'mouse');
         this.deps.hideDropIndicator();
         this.deps.finishDragSession();
-        if (targetLineNumber !== null && this.pendingSelectionRestore) {
+        if (typeof targetLineNumber === 'number' && this.pendingSelectionRestore) {
             setTimeout(() => {
                 this.restoreSelectionAfterDrop(targetLineNumber);
             }, 0);
@@ -231,6 +274,8 @@ export class DragEventHandler {
 
     startPointerDragFromHandle(handle: HTMLElement, e: PointerEvent, getBlockInfo?: () => BlockInfo | null): void {
         if (this.gesture.phase !== 'idle') return;
+        const selectionSnapshot = this.pendingSelectionSnapshot ?? undefined;
+        this.pendingSelectionSnapshot = null;
 
         const blockInfo = (getBlockInfo ? getBlockInfo() : null)
             ?? this.deps.getBlockInfoForHandle(handle)
@@ -243,7 +288,11 @@ export class DragEventHandler {
         // Smart block selection: if there's an editor text selection and the clicked block
         // intersects with it, use the block-aligned selection directly
         if (e.pointerType === 'mouse' && multiLineSelectionEnabled && e.button === 0) {
-            const smartResult = this.smartSelector.evaluate(blockInfo);
+            const smartResult = this.smartSelector.evaluate(
+                blockInfo,
+                selectionSnapshot
+            );
+
             if (smartResult.shouldUseSmartSelection && smartResult.blockInfo) {
                 this.startRangeSelectWithPrecomputedRanges(
                     smartResult.blockInfo,
@@ -281,7 +330,7 @@ export class DragEventHandler {
 
     destroy(): void {
         this.abortPointerSession({ shouldFinishDragSession: true, shouldHideDropIndicator: true });
-        this.clearCommittedRangeSelection();
+        this.clearCommittedRangeSelection({ reason: 'destroy' });
         this.rangeVisual.destroy();
 
         const editorDom = this.view.dom;
@@ -298,9 +347,14 @@ export class DragEventHandler {
         return this.hasActivePointerSession();
     }
 
+    hasCommittedSelection(): boolean {
+        return this.committedRangeSelection !== null;
+    }
+
     refreshSelectionVisual(): void {
-        if (!this.isMultiLineSelectionEnabled()) {
-            this.clearCommittedRangeSelection();
+        const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
+        if (!multiLineSelectionEnabled) {
+            this.clearCommittedRangeSelection({ reason: 'refresh_feature_disabled' });
             return;
         }
         this.rangeVisual.scheduleRefresh();
@@ -435,30 +489,76 @@ export class DragEventHandler {
         const isMouse = pointerType === 'mouse';
         const sourceHandleDraggableAttr = handle?.getAttribute('draggable') ?? null;
 
+        // Always stop propagation to prevent other handlers from clearing selection
+        // But for mouse, don't prevent default - allow native HTML5 drag to work
+        e.stopPropagation();
         if (!isMouse) {
             e.preventDefault();
-            e.stopPropagation();
             this.pointer.tryCapturePointer(e);
-            if (handle) {
-                handle.setAttribute('draggable', 'false');
-            }
+        }
+        if (!isMouse && handle) {
+            handle.setAttribute('draggable', 'false');
         }
 
         const anchorStartLineNumber = precomputedRanges[0].startLineNumber;
         const anchorEndLineNumber = precomputedRanges[precomputedRanges.length - 1].endLineNumber;
 
-        // For touch/pen smart selection, commit immediately.
-        // For mouse we keep the existing click-to-commit flow and also allow native drag to start.
-        const timeoutId = isMouse
-            ? null
-            : window.setTimeout(() => {
-                if (this.gesture.phase !== 'range_selecting') return;
-                const state = this.gesture.rangeSelect;
-                if (state.pointerId !== e.pointerId) return;
-                state.longPressReady = true;
-                this.commitRangeSelection(state);
-                this.finishRangeSelectionSession();
-            }, 0);
+        // For mouse: immediately commit selection and let native drag work
+        // For touch: use timeout to allow long-press gesture
+        if (isMouse) {
+            this.pendingSmartCommitEventTimeStamp = e.timeStamp;
+            // Immediately commit the selection for mouse click
+            const selectionState: MouseRangeSelectState = {
+                sourceBlock: anchorBlock,
+                dragSourceBlock: cloneBlockInfo(anchorBlock),
+                selectedBlock: anchorBlock,
+                pointerId: e.pointerId,
+                startX: e.clientX,
+                startY: e.clientY,
+                latestX: e.clientX,
+                latestY: e.clientY,
+                pointerType,
+                dragReady: true,
+                longPressReady: true,
+                isIntercepting: false,
+                timeoutId: null,
+                dragTimeoutId: null,
+                sourceHandle: handle,
+                sourceHandleDraggableAttr,
+                anchorStartLineNumber,
+                anchorEndLineNumber,
+                currentLineNumber: anchorEndLineNumber,
+                committedRangesSnapshot: [],
+                selectionRanges: precomputedRanges,
+                showLinks: false,
+                highlightHandles: false,
+                shouldClearEditorSelectionOnCommit: true,
+            };
+
+            this.gesture = { phase: 'range_selecting', rangeSelect: selectionState };
+
+            // Render visual immediately
+            this.rangeVisual.render(precomputedRanges, { showLinks: false, highlightHandles: false });
+            if (this.deps.setHiddenRangesForSelection) {
+                this.deps.setHiddenRangesForSelection(precomputedRanges, handle);
+            }
+
+            // Commit immediately for mouse
+            this.commitRangeSelection(selectionState);
+            this.gesture = { phase: 'idle' };
+            return;
+        }
+        this.pendingSmartCommitEventTimeStamp = null;
+
+        // For touch: use timeout to allow long-press gesture
+        const timeoutId = window.setTimeout(() => {
+            if (this.gesture.phase !== 'range_selecting') return;
+            const state = this.gesture.rangeSelect;
+            if (state.pointerId !== e.pointerId) return;
+            state.longPressReady = true;
+            this.commitRangeSelection(state);
+            this.finishRangeSelectionSession();
+        }, 0);
 
         this.gesture = {
             phase: 'range_selecting',
@@ -474,7 +574,7 @@ export class DragEventHandler {
                 pointerType,
                 dragReady: true,
                 longPressReady: false,
-                isIntercepting: !isMouse,
+                isIntercepting: true,
                 timeoutId,
                 dragTimeoutId: null,
                 sourceHandle: handle,
@@ -690,7 +790,7 @@ export class DragEventHandler {
         const pointerId = pressState.pointerId;
         // Preserve selection for restoration after drag
         const anchorHandle = this.findHandleAtLine(sourceBlock.startLine + 1);
-        this.clearCommittedRangeSelection({ preserveForDrag: true, anchorHandle });
+        this.clearCommittedRangeSelection({ preserveForDrag: true, anchorHandle, reason: 'preserve_for_drag' });
         this.clearPointerPressState();
         this.beginPointerDrag(sourceBlock, pointerId, e.clientX, e.clientY, e.pointerType || null);
     }
@@ -729,7 +829,11 @@ export class DragEventHandler {
                     const sourceBlock = state.dragSourceBlock;
                     const pointerId = state.pointerId;
                     // Preserve selection for restoration after drag
-                    this.clearCommittedRangeSelection({ preserveForDrag: true, anchorHandle: state.sourceHandle });
+                    this.clearCommittedRangeSelection({
+                        preserveForDrag: true,
+                        anchorHandle: state.sourceHandle,
+                        reason: 'preserve_for_drag',
+                    });
                     this.clearMouseRangeSelectState();
                     this.beginPointerDrag(sourceBlock, pointerId, e.clientX, e.clientY, pointerType);
                 }
@@ -806,57 +910,97 @@ export class DragEventHandler {
     }
 
     private commitRangeSelection(state: MouseRangeSelectState): void {
-        if (state.shouldClearEditorSelectionOnCommit) {
-            const currentSelection = this.view.state.selection.main;
-            this.view.dispatch({
-                selection: EditorSelection.cursor(currentSelection.head),
-            });
-        }
         const docLines = this.view.state.doc.lines;
         const committedRanges = mergeLineRanges(docLines, state.selectionRanges);
         const committedBlock = buildDragSourceFromLineRanges(this.view.state.doc, committedRanges, state.sourceBlock);
+
+        // IMPORTANT: Set committedRangeSelection BEFORE clearing editor selection
+        // because dispatch() triggers update event which calls refreshSelectionVisual()
         this.committedRangeSelection = {
             selectedBlock: committedBlock,
             ranges: committedRanges,
         };
-        this.rangeVisual.render(committedRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
+        this.lastCommittedSelectionSource = (
+            state.shouldClearEditorSelectionOnCommit
+            && state.pointerType === 'mouse'
+        ) ? 'smart_mouse' : 'other';
+        this.lastCommittedSelectionAtMs = Date.now();
+        this.lastCommittedSelectionPointerId = state.pointerId;
+        this.lastCommittedSelectionEventTimeStamp = this.lastCommittedSelectionSource === 'smart_mouse'
+            ? this.pendingSmartCommitEventTimeStamp
+            : null;
+        this.pendingSmartCommitEventTimeStamp = null;
+
+        // Now safe to clear editor selection - committedRangeSelection is already set
+        if (state.shouldClearEditorSelectionOnCommit) {
+            const currentSelection = this.view.state.selection.main;
+            if (typeof this.view.dispatch === 'function') {
+                this.view.dispatch({
+                    selection: EditorSelection.cursor(currentSelection.head),
+                });
+            }
+        }
+
+        // Render selection visual without link bar (user doesn't want the black vertical line)
+        this.rangeVisual.render(committedRanges, { showLinks: false, highlightHandles: false });
         // Hide handles for non-anchor blocks during selection
         if (this.deps.setHiddenRangesForSelection) {
             this.deps.setHiddenRangesForSelection(committedRanges, state.sourceHandle);
         }
     }
 
-    private clearCommittedRangeSelection(options?: { preserveForDrag?: boolean; anchorHandle?: HTMLElement | null }): void {
+    private clearCommittedRangeSelection(options?: {
+        preserveForDrag?: boolean;
+        anchorHandle?: HTMLElement | null;
+        reason?: string;
+        pointerId?: number | null;
+        eventTimeStamp?: number | null;
+    }): void {
         if (!this.committedRangeSelection) return;
 
-        console.log('[Dragger Debug] clearCommittedRangeSelection', {
-            preserveForDrag: options?.preserveForDrag,
-            currentRanges: JSON.stringify(this.committedRangeSelection.ranges),
-            anchorHandle: options?.anchorHandle,
-        });
+        const reason = options?.reason ?? 'unspecified';
+        if (
+            reason === 'refresh_feature_disabled'
+            && this.lastCommittedSelectionSource === 'smart_mouse'
+            && Date.now() - this.lastCommittedSelectionAtMs <= SMART_SELECTION_REFRESH_CLEAR_GUARD_MS
+        ) {
+            return;
+        }
+        if (
+            reason === 'pointerdown_outside_selection'
+            && this.lastCommittedSelectionSource === 'smart_mouse'
+            && typeof options?.pointerId === 'number'
+            && options.pointerId === this.lastCommittedSelectionPointerId
+            && typeof options?.eventTimeStamp === 'number'
+            && typeof this.lastCommittedSelectionEventTimeStamp === 'number'
+            && Math.abs(options.eventTimeStamp - this.lastCommittedSelectionEventTimeStamp) <= SMART_SELECTION_SAME_EVENT_TOLERANCE_MS
+            && Date.now() - this.lastCommittedSelectionAtMs <= SMART_SELECTION_POINTERDOWN_CLEAR_GUARD_MS
+        ) {
+            return;
+        }
 
         // If preserveForDrag is true, save the selection info for restoration after drag
         if (options?.preserveForDrag) {
             const ranges = cloneLineRanges(this.committedRangeSelection.ranges);
             const firstRange = ranges[0];
             if (firstRange) {
-                const sourceLineCount = ranges.reduce((count, range) => {
-                    return count + Math.max(0, range.endLineNumber - range.startLineNumber + 1);
-                }, 0);
+                const sourceLineCount = this.countLinesInRanges(ranges);
                 this.pendingSelectionRestore = {
                     ranges,
+                    rangeLineSpans: this.getRangeLineSpans(ranges),
+                    sourceBlockTemplate: cloneBlockInfo(this.committedRangeSelection.selectedBlock),
                     anchorHandle: options.anchorHandle ?? null,
                     sourceStartLine: firstRange.startLineNumber,
                     sourceLineCount,
                 };
-                console.log('[Dragger Debug] Saved pendingSelectionRestore:', {
-                    ...this.pendingSelectionRestore,
-                    ranges: JSON.stringify(this.pendingSelectionRestore.ranges),
-                });
             }
         }
 
         this.committedRangeSelection = null;
+        this.lastCommittedSelectionSource = 'other';
+        this.lastCommittedSelectionAtMs = 0;
+        this.lastCommittedSelectionPointerId = null;
+        this.lastCommittedSelectionEventTimeStamp = null;
         this.rangeVisual.clear();
         // Restore normal handle visibility
         if (this.deps.clearHiddenRangesForSelection) {
@@ -866,28 +1010,36 @@ export class DragEventHandler {
 
     private restoreSelectionAfterDrop(targetStartLine: number): void {
         if (!this.pendingSelectionRestore) return;
+        if (!Number.isFinite(targetStartLine)) {
+            this.pendingSelectionRestore = null;
+            return;
+        }
 
-        const { anchorHandle, sourceLineCount } = this.pendingSelectionRestore;
+        const ranges = cloneLineRanges(this.pendingSelectionRestore.ranges);
+        const rangeLineSpans = this.pendingSelectionRestore.rangeLineSpans.length > 0
+            ? this.pendingSelectionRestore.rangeLineSpans.filter((span) => span > 0)
+            : this.getRangeLineSpans(ranges);
+        const sourceLineCount = rangeLineSpans.reduce((count, span) => count + span, 0);
+        if (sourceLineCount <= 0) {
+            this.pendingSelectionRestore = null;
+            return;
+        }
 
-        console.log('[Dragger Debug] restoreSelectionAfterDrop', {
-            targetStartLine,
-            sourceLineCount,
-        });
-
-        // The selection should be exactly at the target position with the same line count
-        const newStartLine = targetStartLine;
-        const newEndLine = targetStartLine + sourceLineCount - 1;
+        // `targetStartLine` is resolved on the pre-drop document. If any moved ranges were
+        // above that line, the subsequent delete shifts the inserted block upward.
+        const movedLinesBeforeTarget = this.countLinesBeforeTargetLine(ranges, targetStartLine);
+        const newStartLine = targetStartLine - movedLinesBeforeTarget;
 
         // Clamp to document bounds
         const docLines = this.view.state.doc.lines;
         const clampedStartLine = Math.max(1, Math.min(docLines, newStartLine));
-        const clampedEndLine = Math.max(clampedStartLine, Math.min(docLines, newEndLine));
-
-        console.log('[Dragger Debug] calculated new selection', {
-            newStartLine: clampedStartLine,
-            newEndLine: clampedEndLine,
-            docLines,
-        });
+        const restoredRanges = this.buildRestoredRangesFromSpans(clampedStartLine, rangeLineSpans, docLines);
+        const firstRestoredRange = restoredRanges[0];
+        const lastRestoredRange = restoredRanges[restoredRanges.length - 1];
+        if (!firstRestoredRange || !lastRestoredRange) {
+            this.pendingSelectionRestore = null;
+            return;
+        }
 
         // Clear any existing selection first
         this.rangeVisual.clear();
@@ -895,45 +1047,136 @@ export class DragEventHandler {
             this.deps.clearHiddenRangesForSelection();
         }
 
-        const mergedRanges: LineRange[] = [{
-            startLineNumber: clampedStartLine,
-            endLineNumber: clampedEndLine,
-        }];
-
-        const startLine = this.view.state.doc.line(clampedStartLine);
-        const endLine = this.view.state.doc.line(clampedEndLine);
-        const newBlock: BlockInfo = {
-            type: BlockType.Paragraph,
-            startLine: clampedStartLine - 1,
-            endLine: clampedEndLine - 1,
-            from: startLine.from,
-            to: endLine.to,
-            indentLevel: 0,
-            content: '',
-        };
+        const newBlock = this.buildRestoredSelectionBlock(
+            restoredRanges,
+            this.pendingSelectionRestore.sourceBlockTemplate
+        );
 
         this.committedRangeSelection = {
             selectedBlock: newBlock,
-            ranges: mergedRanges,
+            ranges: restoredRanges,
         };
+        this.lastCommittedSelectionSource = 'other';
+        this.lastCommittedSelectionAtMs = Date.now();
+        this.lastCommittedSelectionPointerId = null;
+        this.lastCommittedSelectionEventTimeStamp = null;
 
-        console.log('[Dragger Debug] About to render selection, mergedRanges:', JSON.stringify(mergedRanges));
-
-        // Re-render visual and hide other handles
-        this.rangeVisual.render(mergedRanges, { showLinks: false, highlightHandles: false });
-        if (this.deps.setHiddenRangesForSelection && anchorHandle) {
-            // Try to find the new anchor handle at the target position
-            const newAnchorHandle = this.findHandleAtLine(targetStartLine) ?? anchorHandle;
-            console.log('[Dragger Debug] Setting hidden ranges, newAnchorHandle:', newAnchorHandle);
-            this.deps.setHiddenRangesForSelection(mergedRanges, newAnchorHandle);
+        // Re-render visual (without link bar) and hide other handles
+        // Don't show link bar after drop - user doesn't want the "big black line"
+        this.rangeVisual.render(restoredRanges, { showLinks: false, highlightHandles: false });
+        if (this.deps.setHiddenRangesForSelection) {
+            const newAnchorHandle = this.findHandleAtLine(firstRestoredRange.startLineNumber);
+            this.deps.setHiddenRangesForSelection(restoredRanges, newAnchorHandle);
         }
 
         this.pendingSelectionRestore = null;
     }
 
+    private countLinesInRanges(ranges: LineRange[]): number {
+        return ranges.reduce((count, range) => {
+            return count + Math.max(0, range.endLineNumber - range.startLineNumber + 1);
+        }, 0);
+    }
+
+    private countLinesBeforeTargetLine(ranges: LineRange[], targetLineNumber: number): number {
+        let count = 0;
+        for (const range of ranges) {
+            if (range.endLineNumber < targetLineNumber) {
+                count += Math.max(0, range.endLineNumber - range.startLineNumber + 1);
+            }
+        }
+        return count;
+    }
+
+    private getRangeLineSpans(ranges: LineRange[]): number[] {
+        return ranges
+            .map((range) => Math.max(0, range.endLineNumber - range.startLineNumber + 1))
+            .filter((span) => span > 0);
+    }
+
+    private buildRestoredRangesFromSpans(
+        startLineNumber: number,
+        rangeLineSpans: number[],
+        docLines: number
+    ): LineRange[] {
+        if (docLines < 1) return [];
+        const spans = rangeLineSpans.filter((span) => span > 0);
+        if (spans.length === 0) return [];
+
+        const ranges: LineRange[] = [];
+        let cursor = Math.max(1, Math.min(docLines, startLineNumber));
+        for (const span of spans) {
+            if (cursor > docLines) break;
+            const start = Math.max(1, Math.min(docLines, cursor));
+            const end = Math.max(start, Math.min(docLines, start + span - 1));
+            ranges.push({
+                startLineNumber: start,
+                endLineNumber: end,
+            });
+            cursor = end + 1;
+        }
+        return ranges;
+    }
+
+    private buildRestoredSelectionBlock(restoredRanges: LineRange[], template: BlockInfo): BlockInfo {
+        const doc = this.view.state.doc;
+        const normalizedRanges = restoredRanges
+            .map((range) => normalizeLineRange(doc.lines, range.startLineNumber, range.endLineNumber))
+            .sort((a, b) => a.startLineNumber - b.startLineNumber);
+        const firstRange = normalizedRanges[0];
+        const lastRange = normalizedRanges[normalizedRanges.length - 1];
+        if (!firstRange || !lastRange) {
+            return cloneBlockInfo(template);
+        }
+
+        if (normalizedRanges.length === 1) {
+            const startLine = doc.line(firstRange.startLineNumber);
+            const endLine = doc.line(firstRange.endLineNumber);
+            return {
+                type: template.type,
+                startLine: firstRange.startLineNumber - 1,
+                endLine: firstRange.endLineNumber - 1,
+                from: startLine.from,
+                to: endLine.to,
+                indentLevel: template.indentLevel,
+                content: doc.sliceString(startLine.from, endLine.to),
+            };
+        }
+
+        const firstLine = doc.line(firstRange.startLineNumber);
+        const lastLine = doc.line(lastRange.endLineNumber);
+        const content = normalizedRanges.map((range) => {
+            const startLine = doc.line(range.startLineNumber);
+            const endLine = doc.line(range.endLineNumber);
+            const from = startLine.from;
+            const to = Math.min(endLine.to + 1, doc.length);
+            return doc.sliceString(from, to);
+        }).join('');
+
+        return {
+            type: template.type,
+            startLine: firstRange.startLineNumber - 1,
+            endLine: lastRange.endLineNumber - 1,
+            from: firstLine.from,
+            to: lastLine.to,
+            indentLevel: template.indentLevel,
+            content,
+            compositeSelection: {
+                ranges: normalizedRanges.map((range) => ({
+                    startLine: range.startLineNumber - 1,
+                    endLine: range.endLineNumber - 1,
+                })),
+            },
+        };
+    }
+
     resolveNativeDragSourceForHandleDrag(baseBlockInfo: BlockInfo | null): BlockInfo | null {
         if (!baseBlockInfo) return null;
         if (!this.isMultiLineSelectionEnabled()) return baseBlockInfo;
+
+        if (this.committedRangeSelection && this.isBlockInsideCommittedSelection(baseBlockInfo)) {
+            return cloneBlockInfo(this.committedRangeSelection.selectedBlock);
+        }
 
         if (this.gesture.phase === 'range_selecting') {
             const state = this.gesture.rangeSelect;
@@ -954,9 +1197,28 @@ export class DragEventHandler {
         const state = this.gesture.rangeSelect;
         if (state.pointerType !== 'mouse') return;
 
+        // Native mouse drag can start before the deferred smart-commit timer fires.
+        // Commit now so text selection is collapsed to block selection immediately.
+        if (state.shouldClearEditorSelectionOnCommit) {
+            this.commitRangeSelection(state);
+        }
+
         this.clearMouseRangeSelectState({ preserveVisual: true });
         this.pointer.detachPointerListeners();
         this.pointer.releasePointerCapture();
+    }
+
+    private isBlockInsideCommittedSelection(blockInfo: BlockInfo): boolean {
+        if (!this.committedRangeSelection) return false;
+        const blockStart = blockInfo.startLine + 1;
+        const blockEnd = blockInfo.endLine + 1;
+        for (const range of this.committedRangeSelection.ranges) {
+            if (blockEnd < range.startLineNumber || blockStart > range.endLineNumber) {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     private queueSelectionRestoreForSourceBlock(sourceBlock: BlockInfo): void {
@@ -977,6 +1239,8 @@ export class DragEventHandler {
         }, 0);
         this.pendingSelectionRestore = {
             ranges: mergedRanges,
+            rangeLineSpans: this.getRangeLineSpans(mergedRanges),
+            sourceBlockTemplate: cloneBlockInfo(sourceBlock),
             anchorHandle: this.findHandleAtLine(firstRange.startLineNumber),
             sourceStartLine: firstRange.startLineNumber,
             sourceLineCount,
@@ -996,20 +1260,13 @@ export class DragEventHandler {
     }
 
     private refreshRangeSelectionVisual(): void {
-        console.log('[Dragger Debug] refreshRangeSelectionVisual called', {
-            phase: this.gesture.phase,
-            hasCommittedSelection: !!this.committedRangeSelection,
-            committedRanges: this.committedRangeSelection ? JSON.stringify(this.committedRangeSelection.ranges) : null,
-        });
         if (this.gesture.phase === 'range_selecting') {
             const state = this.gesture.rangeSelect;
-            this.rangeVisual.render(state.selectionRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
+            this.rangeVisual.render(state.selectionRanges, { showLinks: false, highlightHandles: state.highlightHandles });
             return;
         }
         if (this.committedRangeSelection) {
-            // For committed selections, use default (show links and handles)
-            // since we don't store these flags in committedRangeSelection
-            this.rangeVisual.render(this.committedRangeSelection.ranges);
+            this.rangeVisual.render(this.committedRangeSelection.ranges, { showLinks: false, highlightHandles: false });
         }
     }
 
@@ -1035,9 +1292,12 @@ export class DragEventHandler {
         pointerType: string | null
     ): boolean {
         if (!this.committedRangeSelection) return false;
-        if (target.closest(`.${RANGE_SELECTION_LINK_CLASS}`)) return false;
-        if (target.closest(`.${RANGE_SELECTED_HANDLE_CLASS}`)) return false;
-        if (target.closest(`.${DRAG_HANDLE_CLASS}`)) return false;
+        const isLink = target.closest(`.${RANGE_SELECTION_LINK_CLASS}`);
+        const isSelectedHandle = target.closest(`.${RANGE_SELECTED_HANDLE_CLASS}`);
+        const isHandle = target.closest(`.${DRAG_HANDLE_CLASS}`);
+        if (isLink) return false;
+        if (isSelectedHandle) return false;
+        if (isHandle) return false;
 
         if (pointerType && pointerType !== 'mouse') {
             if (!this.mobile.isWithinContentTolerance(clientX)) {
@@ -1048,7 +1308,8 @@ export class DragEventHandler {
             return !inContent && !inGutter;
         }
         const centerX = getHandleColumnCenterX(this.view);
-        return clientX > centerX + RANGE_SELECTION_GRIP_HIT_X_PADDING_PX;
+        const shouldClear = clientX > centerX + RANGE_SELECTION_GRIP_HIT_X_PADDING_PX;
+        return shouldClear;
     }
 
     private isCommittedSelectionGripHit(
@@ -1090,6 +1351,16 @@ export class DragEventHandler {
         return false;
     }
 
+    private isCommittedSelectionHandleHit(target: HTMLElement): boolean {
+        if (!this.committedRangeSelection) return false;
+        const handle = target.closest<HTMLElement>(`.${DRAG_HANDLE_CLASS}`);
+        if (!handle) return false;
+        if (handle.classList.contains(EMBED_HANDLE_CLASS)) return false;
+        const blockInfo = this.deps.getBlockInfoForHandle(handle);
+        if (!blockInfo) return false;
+        return this.isBlockInsideCommittedSelection(blockInfo);
+    }
+
     private finishPointerDrag(e: PointerEvent, shouldDrop: boolean): void {
         if (this.gesture.phase !== 'dragging') return;
         const state = this.gesture.drag;
@@ -1099,7 +1370,6 @@ export class DragEventHandler {
         let targetLineNumber: number | null = null;
         if (shouldDrop) {
             targetLineNumber = this.deps.performDropAtPoint(state.sourceBlock, e.clientX, e.clientY, e.pointerType || null);
-            console.log('[Dragger Debug] finishPointerDrag - targetLineNumber:', targetLineNumber, 'sourceBlock:', state.sourceBlock);
         }
         this.abortPointerSession({
             shouldFinishDragSession: true,
@@ -1108,8 +1378,7 @@ export class DragEventHandler {
             pointerType: e.pointerType || null,
         });
         // Restore selection after drop if we had a pending restore and drop succeeded
-        if (shouldDrop && targetLineNumber !== null && this.pendingSelectionRestore) {
-            console.log('[Dragger Debug] Will restore selection, pendingSelectionRestore:', this.pendingSelectionRestore);
+        if (shouldDrop && typeof targetLineNumber === 'number' && this.pendingSelectionRestore) {
             // Use setTimeout to ensure the document update has been processed
             setTimeout(() => {
                 this.restoreSelectionAfterDrop(targetLineNumber!);
@@ -1224,10 +1493,11 @@ export class DragEventHandler {
         if (
             this.committedRangeSelection
             && this.isMobileEnvironment()
+            && this.lastPointerType !== 'mouse'
             && e.target instanceof HTMLElement
             && this.mobile.shouldSuppressFocusTarget(e.target)
         ) {
-            this.clearCommittedRangeSelection();
+            this.clearCommittedRangeSelection({ reason: 'mobile_focus_suppressed' });
         }
         if (!this.hasActivePointerSession()) return;
         this.mobile.suppressMobileKeyboard(e.target);
