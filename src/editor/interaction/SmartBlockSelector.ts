@@ -30,11 +30,21 @@ export class SmartBlockSelector {
      * @returns Smart selection result with ranges and block info if applicable
      */
     evaluate(clickedBlock: BlockInfo): SmartSelectionResult {
-        // Convert 0-indexed to 1-indexed line number
         const clickedStartLine = clickedBlock.startLine + 1;
+        const clickedEndLine = clickedBlock.endLine + 1;
 
-        // Check if the clicked block intersects with editor selection
-        const alignedRanges = this.editorSelection.getBlockAlignedRangeIfIntersecting(clickedStartLine);
+        // Check if the clicked block range intersects with editor selection.
+        const alignedRanges = this.editorSelection.getBlockAlignedRangeIfRangeIntersecting(
+            clickedStartLine,
+            clickedEndLine
+        );
+        console.log('[Dragger Debug] SmartBlockSelector.evaluate', {
+            clickedBlock: {
+                startLine: clickedBlock.startLine,
+                endLine: clickedBlock.endLine,
+            },
+            alignedRanges,
+        });
 
         if (!alignedRanges) {
             return {
@@ -54,6 +64,14 @@ export class SmartBlockSelector {
             mergedRanges,
             clickedBlock
         );
+        console.log('[Dragger Debug] SmartBlockSelector.result', {
+            mergedRanges,
+            sourceBlock: {
+                startLine: blockInfo.startLine,
+                endLine: blockInfo.endLine,
+                hasComposite: !!blockInfo.compositeSelection,
+            },
+        });
 
         return {
             shouldUseSmartSelection: true,

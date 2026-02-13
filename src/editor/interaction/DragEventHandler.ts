@@ -38,6 +38,7 @@ const MOUSE_RANGE_SELECT_LONG_PRESS_MS = 260;
 const MOUSE_RANGE_SELECT_CANCEL_MOVE_THRESHOLD_PX = 12;
 const RANGE_SELECTION_GRIP_HIT_PADDING_PX = 20;
 const RANGE_SELECTION_GRIP_HIT_X_PADDING_PX = 28;
+const SMART_SELECTION_REFRESH_CLEAR_GUARD_MS = 500;
 
 type PointerDragData = {
     sourceBlock: BlockInfo;
@@ -83,6 +84,9 @@ export interface DragEventHandlerDeps {
 export class DragEventHandler {
     private gesture: GestureState = { phase: 'idle' };
     private committedRangeSelection: CommittedRangeSelection | null = null;
+    private lastCommittedSelectionSource: 'smart_mouse' | 'other' = 'other';
+    private lastCommittedSelectionAtMs = 0;
+    private lastPointerType: string | null = null;
     // Store selection info to restore after drag completes
     private pendingSelectionRestore: {
         ranges: LineRange[];
@@ -99,9 +103,10 @@ export class DragEventHandler {
         const target = e.target instanceof HTMLElement ? e.target : null;
         if (!target) return;
         const pointerType = e.pointerType || null;
+        this.lastPointerType = pointerType;
         const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
         if (!multiLineSelectionEnabled) {
-            this.clearCommittedRangeSelection();
+            this.clearCommittedRangeSelection({ reason: 'feature_disabled' });
         }
         const canHandleCommittedSelection = (
             multiLineSelectionEnabled
@@ -120,7 +125,7 @@ export class DragEventHandler {
             }
         }
         if (canHandleCommittedSelection && this.shouldClearCommittedSelectionOnPointerDown(target, e.clientX, pointerType)) {
-            this.clearCommittedRangeSelection();
+            this.clearCommittedRangeSelection({ reason: 'pointerdown_outside_selection' });
         }
 
         const handle = target.closest<HTMLElement>(`.${DRAG_HANDLE_CLASS}`);
@@ -281,7 +286,7 @@ export class DragEventHandler {
 
     destroy(): void {
         this.abortPointerSession({ shouldFinishDragSession: true, shouldHideDropIndicator: true });
-        this.clearCommittedRangeSelection();
+        this.clearCommittedRangeSelection({ reason: 'destroy' });
         this.rangeVisual.destroy();
 
         const editorDom = this.view.dom;
@@ -299,8 +304,9 @@ export class DragEventHandler {
     }
 
     refreshSelectionVisual(): void {
-        if (!this.isMultiLineSelectionEnabled()) {
-            this.clearCommittedRangeSelection();
+        const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
+        if (!multiLineSelectionEnabled) {
+            this.clearCommittedRangeSelection({ reason: 'refresh_feature_disabled' });
             return;
         }
         this.rangeVisual.scheduleRefresh();
@@ -447,18 +453,15 @@ export class DragEventHandler {
         const anchorStartLineNumber = precomputedRanges[0].startLineNumber;
         const anchorEndLineNumber = precomputedRanges[precomputedRanges.length - 1].endLineNumber;
 
-        // For touch/pen smart selection, commit immediately.
-        // For mouse we keep the existing click-to-commit flow and also allow native drag to start.
-        const timeoutId = isMouse
-            ? null
-            : window.setTimeout(() => {
-                if (this.gesture.phase !== 'range_selecting') return;
-                const state = this.gesture.rangeSelect;
-                if (state.pointerId !== e.pointerId) return;
-                state.longPressReady = true;
-                this.commitRangeSelection(state);
-                this.finishRangeSelectionSession();
-            }, 0);
+        // Smart selection should still commit immediately for both click and drag paths.
+        const timeoutId = window.setTimeout(() => {
+            if (this.gesture.phase !== 'range_selecting') return;
+            const state = this.gesture.rangeSelect;
+            if (state.pointerId !== e.pointerId) return;
+            state.longPressReady = true;
+            this.commitRangeSelection(state);
+            this.finishRangeSelectionSession();
+        }, 0);
 
         this.gesture = {
             phase: 'range_selecting',
@@ -690,7 +693,7 @@ export class DragEventHandler {
         const pointerId = pressState.pointerId;
         // Preserve selection for restoration after drag
         const anchorHandle = this.findHandleAtLine(sourceBlock.startLine + 1);
-        this.clearCommittedRangeSelection({ preserveForDrag: true, anchorHandle });
+        this.clearCommittedRangeSelection({ preserveForDrag: true, anchorHandle, reason: 'preserve_for_drag' });
         this.clearPointerPressState();
         this.beginPointerDrag(sourceBlock, pointerId, e.clientX, e.clientY, e.pointerType || null);
     }
@@ -729,7 +732,11 @@ export class DragEventHandler {
                     const sourceBlock = state.dragSourceBlock;
                     const pointerId = state.pointerId;
                     // Preserve selection for restoration after drag
-                    this.clearCommittedRangeSelection({ preserveForDrag: true, anchorHandle: state.sourceHandle });
+                    this.clearCommittedRangeSelection({
+                        preserveForDrag: true,
+                        anchorHandle: state.sourceHandle,
+                        reason: 'preserve_for_drag',
+                    });
                     this.clearMouseRangeSelectState();
                     this.beginPointerDrag(sourceBlock, pointerId, e.clientX, e.clientY, pointerType);
                 }
@@ -808,9 +815,11 @@ export class DragEventHandler {
     private commitRangeSelection(state: MouseRangeSelectState): void {
         if (state.shouldClearEditorSelectionOnCommit) {
             const currentSelection = this.view.state.selection.main;
-            this.view.dispatch({
-                selection: EditorSelection.cursor(currentSelection.head),
-            });
+            if (typeof this.view.dispatch === 'function') {
+                this.view.dispatch({
+                    selection: EditorSelection.cursor(currentSelection.head),
+                });
+            }
         }
         const docLines = this.view.state.doc.lines;
         const committedRanges = mergeLineRanges(docLines, state.selectionRanges);
@@ -819,20 +828,48 @@ export class DragEventHandler {
             selectedBlock: committedBlock,
             ranges: committedRanges,
         };
-        this.rangeVisual.render(committedRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
+        this.lastCommittedSelectionSource = (
+            state.shouldClearEditorSelectionOnCommit
+            && state.pointerType === 'mouse'
+        ) ? 'smart_mouse' : 'other';
+        this.lastCommittedSelectionAtMs = Date.now();
+        // Committed selection should be visibly interactive (link bar),
+        // but keep handles normal to avoid "weird handle" appearance.
+        this.rangeVisual.render(committedRanges, { showLinks: true, highlightHandles: false });
         // Hide handles for non-anchor blocks during selection
         if (this.deps.setHiddenRangesForSelection) {
             this.deps.setHiddenRangesForSelection(committedRanges, state.sourceHandle);
         }
     }
 
-    private clearCommittedRangeSelection(options?: { preserveForDrag?: boolean; anchorHandle?: HTMLElement | null }): void {
+    private clearCommittedRangeSelection(options?: {
+        preserveForDrag?: boolean;
+        anchorHandle?: HTMLElement | null;
+        reason?: string;
+    }): void {
         if (!this.committedRangeSelection) return;
 
+        const reason = options?.reason ?? 'unspecified';
+        if (
+            reason === 'refresh_feature_disabled'
+            && this.lastCommittedSelectionSource === 'smart_mouse'
+            && Date.now() - this.lastCommittedSelectionAtMs <= SMART_SELECTION_REFRESH_CLEAR_GUARD_MS
+        ) {
+            console.log('[Dragger Debug] clearCommittedRangeSelection skipped by guard', {
+                reason,
+                ageMs: Date.now() - this.lastCommittedSelectionAtMs,
+            });
+            return;
+        }
+
+        console.log(
+            `[Dragger Debug] clearCommittedRangeSelection reason=${reason} preserveForDrag=${String(!!options?.preserveForDrag)}`
+        );
         console.log('[Dragger Debug] clearCommittedRangeSelection', {
             preserveForDrag: options?.preserveForDrag,
             currentRanges: JSON.stringify(this.committedRangeSelection.ranges),
             anchorHandle: options?.anchorHandle,
+            reason,
         });
 
         // If preserveForDrag is true, save the selection info for restoration after drag
@@ -857,6 +894,8 @@ export class DragEventHandler {
         }
 
         this.committedRangeSelection = null;
+        this.lastCommittedSelectionSource = 'other';
+        this.lastCommittedSelectionAtMs = 0;
         this.rangeVisual.clear();
         // Restore normal handle visibility
         if (this.deps.clearHiddenRangesForSelection) {
@@ -867,7 +906,7 @@ export class DragEventHandler {
     private restoreSelectionAfterDrop(targetStartLine: number): void {
         if (!this.pendingSelectionRestore) return;
 
-        const { anchorHandle, sourceLineCount } = this.pendingSelectionRestore;
+        const { sourceLineCount } = this.pendingSelectionRestore;
 
         console.log('[Dragger Debug] restoreSelectionAfterDrop', {
             targetStartLine,
@@ -916,15 +955,19 @@ export class DragEventHandler {
             selectedBlock: newBlock,
             ranges: mergedRanges,
         };
+        this.lastCommittedSelectionSource = 'other';
+        this.lastCommittedSelectionAtMs = Date.now();
 
         console.log('[Dragger Debug] About to render selection, mergedRanges:', JSON.stringify(mergedRanges));
 
         // Re-render visual and hide other handles
-        this.rangeVisual.render(mergedRanges, { showLinks: false, highlightHandles: false });
-        if (this.deps.setHiddenRangesForSelection && anchorHandle) {
-            // Try to find the new anchor handle at the target position
-            const newAnchorHandle = this.findHandleAtLine(targetStartLine) ?? anchorHandle;
-            console.log('[Dragger Debug] Setting hidden ranges, newAnchorHandle:', newAnchorHandle);
+        this.rangeVisual.render(mergedRanges, { showLinks: true, highlightHandles: false });
+        if (this.deps.setHiddenRangesForSelection) {
+            const newAnchorHandle = this.findHandleAtLine(clampedStartLine);
+            console.log('[Dragger Debug] Setting hidden ranges after drop restore', {
+                anchorLine: clampedStartLine,
+                hasAnchorHandle: !!newAnchorHandle,
+            });
             this.deps.setHiddenRangesForSelection(mergedRanges, newAnchorHandle);
         }
 
@@ -935,17 +978,25 @@ export class DragEventHandler {
         if (!baseBlockInfo) return null;
         if (!this.isMultiLineSelectionEnabled()) return baseBlockInfo;
 
+        if (this.committedRangeSelection && this.isBlockInsideCommittedSelection(baseBlockInfo)) {
+            console.log('[Dragger Debug] resolveNativeDragSourceForHandleDrag: using committedRangeSelection');
+            return cloneBlockInfo(this.committedRangeSelection.selectedBlock);
+        }
+
         if (this.gesture.phase === 'range_selecting') {
             const state = this.gesture.rangeSelect;
             if (state.pointerType === 'mouse') {
+                console.log('[Dragger Debug] resolveNativeDragSourceForHandleDrag: using in-flight range_selecting source');
                 return cloneBlockInfo(state.selectedBlock);
             }
         }
 
         const smartResult = this.smartSelector.evaluate(baseBlockInfo);
         if (smartResult.shouldUseSmartSelection && smartResult.blockInfo) {
+            console.log('[Dragger Debug] resolveNativeDragSourceForHandleDrag: using smart selection source');
             return smartResult.blockInfo;
         }
+        console.log('[Dragger Debug] resolveNativeDragSourceForHandleDrag: fallback to base block');
         return baseBlockInfo;
     }
 
@@ -954,9 +1005,28 @@ export class DragEventHandler {
         const state = this.gesture.rangeSelect;
         if (state.pointerType !== 'mouse') return;
 
+        // Native mouse drag can start before the deferred smart-commit timer fires.
+        // Commit now so text selection is collapsed to block selection immediately.
+        if (state.shouldClearEditorSelectionOnCommit) {
+            this.commitRangeSelection(state);
+        }
+
         this.clearMouseRangeSelectState({ preserveVisual: true });
         this.pointer.detachPointerListeners();
         this.pointer.releasePointerCapture();
+    }
+
+    private isBlockInsideCommittedSelection(blockInfo: BlockInfo): boolean {
+        if (!this.committedRangeSelection) return false;
+        const blockStart = blockInfo.startLine + 1;
+        const blockEnd = blockInfo.endLine + 1;
+        for (const range of this.committedRangeSelection.ranges) {
+            if (blockEnd < range.startLineNumber || blockStart > range.endLineNumber) {
+                continue;
+            }
+            return true;
+        }
+        return false;
     }
 
     private queueSelectionRestoreForSourceBlock(sourceBlock: BlockInfo): void {
@@ -1007,9 +1077,7 @@ export class DragEventHandler {
             return;
         }
         if (this.committedRangeSelection) {
-            // For committed selections, use default (show links and handles)
-            // since we don't store these flags in committedRangeSelection
-            this.rangeVisual.render(this.committedRangeSelection.ranges);
+            this.rangeVisual.render(this.committedRangeSelection.ranges, { showLinks: true, highlightHandles: false });
         }
     }
 
@@ -1224,10 +1292,11 @@ export class DragEventHandler {
         if (
             this.committedRangeSelection
             && this.isMobileEnvironment()
+            && this.lastPointerType !== 'mouse'
             && e.target instanceof HTMLElement
             && this.mobile.shouldSuppressFocusTarget(e.target)
         ) {
-            this.clearCommittedRangeSelection();
+            this.clearCommittedRangeSelection({ reason: 'mobile_focus_suppressed' });
         }
         if (!this.hasActivePointerSession()) return;
         this.mobile.suppressMobileKeyboard(e.target);

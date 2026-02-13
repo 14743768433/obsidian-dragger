@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { EditorState } from '@codemirror/state';
+import { EditorSelection, EditorState } from '@codemirror/state';
 import type { EditorView } from '@codemirror/view';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockInfo, BlockType } from '../../types';
@@ -154,6 +154,22 @@ function applyTextSelection(view: EditorView, fromLine: number, toLine: number):
     (view as unknown as { state: EditorState }).state = EditorState.create({
         doc: doc.toString(),
         selection: { anchor, head },
+    });
+}
+
+function applyMultiTextSelections(view: EditorView, ranges: Array<{ fromLine: number; toLine: number }>): void {
+    const doc = view.state.doc;
+    const selectionRanges = ranges.map((range) => {
+        const safeFromLine = Math.max(1, Math.min(doc.lines, range.fromLine));
+        const safeToLine = Math.max(1, Math.min(doc.lines, range.toLine));
+        const anchor = doc.line(safeFromLine).from;
+        const head = doc.line(safeToLine).to;
+        return EditorSelection.range(anchor, head);
+    });
+    (view as unknown as { state: EditorState }).state = EditorState.create({
+        doc: doc.toString(),
+        extensions: [EditorState.allowMultipleSelections.of(true)],
+        selection: EditorSelection.create(selectionRanges),
     });
 }
 
@@ -1537,6 +1553,226 @@ describe('DragEventHandler', () => {
         expect(lines[6]?.classList.contains('dnd-range-selected-line')).toBe(true);
         expect(lines[7]?.classList.contains('dnd-range-selected-line')).toBe(true);
         expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        handler.destroy();
+    });
+
+    it('keeps smart multi-block selection when clicking handle with cross-block text selected', () => {
+        const view = createViewStub(10);
+        (view as unknown as { dispatch: (tr: { selection?: unknown }) => void }).dispatch = (tr) => {
+            if (tr.selection === undefined) return;
+            (view as unknown as { state: EditorState }).state = EditorState.create({
+                doc: view.state.doc.toString(),
+                selection: tr.selection as { anchor: number; head: number },
+            });
+        };
+        const handle = document.createElement('div');
+        handle.className = 'dnd-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        view.dom.appendChild(handle);
+        applyTextSelection(view, 2, 4);
+
+        const baseBlock = createBlock('- item', 1, 1);
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: () => null,
+            getBlockInfoForHandle: () => baseBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            beginPointerDragSession: vi.fn(),
+            finishDragSession: vi.fn(),
+            scheduleDropIndicatorUpdate: vi.fn(),
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint: vi.fn(),
+        });
+
+        handler.attach();
+        dispatchPointer(handle, 'pointerdown', {
+            pointerId: 94,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+        vi.advanceTimersByTime(1);
+        dispatchPointer(window, 'pointerup', {
+            pointerId: 94,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+
+        const lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[0]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        handler.destroy();
+    });
+
+    it('does not clear smart mouse selection on focusin in mobile-like environments', () => {
+        const view = createViewStub(10);
+        (view as unknown as { dispatch: (tr: { selection?: unknown }) => void }).dispatch = (tr) => {
+            if (tr.selection === undefined) return;
+            (view as unknown as { state: EditorState }).state = EditorState.create({
+                doc: view.state.doc.toString(),
+                selection: tr.selection as { anchor: number; head: number },
+            });
+        };
+        const handle = document.createElement('div');
+        handle.className = 'dnd-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        view.dom.appendChild(handle);
+        applyTextSelection(view, 2, 4);
+
+        const baseBlock = createBlock('- item', 1, 1);
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: () => null,
+            getBlockInfoForHandle: () => baseBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            beginPointerDragSession: vi.fn(),
+            finishDragSession: vi.fn(),
+            scheduleDropIndicatorUpdate: vi.fn(),
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint: vi.fn(),
+        });
+
+        handler.attach();
+        dispatchPointer(handle, 'pointerdown', {
+            pointerId: 96,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+        vi.advanceTimersByTime(1);
+        dispatchPointer(window, 'pointerup', {
+            pointerId: 96,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+
+        const content = view.contentDOM.querySelector<HTMLElement>('.cm-line');
+        expect(content).not.toBeNull();
+        content?.dispatchEvent(new FocusEvent('focusin', { bubbles: true, cancelable: true }));
+
+        const lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        handler.destroy();
+    });
+
+    it('guards smart selection from immediate refresh-based clear when feature flag flips transiently', () => {
+        const view = createViewStub(10);
+        (view as unknown as { dispatch: (tr: { selection?: unknown }) => void }).dispatch = (tr) => {
+            if (tr.selection === undefined) return;
+            (view as unknown as { state: EditorState }).state = EditorState.create({
+                doc: view.state.doc.toString(),
+                selection: tr.selection as { anchor: number; head: number },
+            });
+        };
+        const handle = document.createElement('div');
+        handle.className = 'dnd-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        view.dom.appendChild(handle);
+        applyTextSelection(view, 2, 4);
+
+        let multiLineEnabled = true;
+        const baseBlock = createBlock('- item', 1, 1);
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: () => null,
+            getBlockInfoForHandle: () => baseBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            isMultiLineSelectionEnabled: () => multiLineEnabled,
+            beginPointerDragSession: vi.fn(),
+            finishDragSession: vi.fn(),
+            scheduleDropIndicatorUpdate: vi.fn(),
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint: vi.fn(),
+        });
+
+        handler.attach();
+        dispatchPointer(handle, 'pointerdown', {
+            pointerId: 97,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+        vi.advanceTimersByTime(1);
+        dispatchPointer(window, 'pointerup', {
+            pointerId: 97,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+
+        multiLineEnabled = false;
+        handler.refreshSelectionVisual();
+        let lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(true);
+
+        vi.advanceTimersByTime(600);
+        handler.refreshSelectionVisual();
+        lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        handler.destroy();
+    });
+
+    it('keeps all selected blocks when text selection has multiple disjoint ranges', () => {
+        const view = createViewStub(12);
+        (view as unknown as { dispatch: (tr: { selection?: unknown }) => void }).dispatch = (tr) => {
+            if (tr.selection === undefined) return;
+            (view as unknown as { state: EditorState }).state = EditorState.create({
+                doc: view.state.doc.toString(),
+                selection: tr.selection as { anchor: number; head: number },
+            });
+        };
+        const handle = document.createElement('div');
+        handle.className = 'dnd-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        view.dom.appendChild(handle);
+        applyMultiTextSelections(view, [
+            { fromLine: 2, toLine: 2 },
+            { fromLine: 6, toLine: 6 },
+        ]);
+
+        const baseBlock = createBlock('- item', 1, 1);
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: () => null,
+            getBlockInfoForHandle: () => baseBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            beginPointerDragSession: vi.fn(),
+            finishDragSession: vi.fn(),
+            scheduleDropIndicatorUpdate: vi.fn(),
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint: vi.fn(),
+        });
+
+        handler.attach();
+        dispatchPointer(handle, 'pointerdown', {
+            pointerId: 95,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+        vi.advanceTimersByTime(1);
+        dispatchPointer(window, 'pointerup', {
+            pointerId: 95,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+
+        const lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[5]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        expect(lines[4]?.classList.contains('dnd-range-selected-line')).toBe(false);
         handler.destroy();
     });
 });
