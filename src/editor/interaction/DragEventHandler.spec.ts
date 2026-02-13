@@ -2051,12 +2051,73 @@ describe('DragEventHandler', () => {
         expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(true);
         expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(true);
 
-        dispatchPointer(lines[5]!, 'pointerdown', {
+        dispatchPointer(lines[2]!, 'pointerdown', {
             pointerId: 112,
             pointerType: 'mouse',
             clientX: 220,
-            clientY: 120,
+            clientY: 50,
         });
+        lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(false);
+        handler.destroy();
+    });
+
+    it('clears committed selection when clicking inside selected shaded lines with a new pointer', () => {
+        const view = createViewStub(8);
+        (view as unknown as { dispatch: (tr: { selection?: unknown }) => void }).dispatch = (tr) => {
+            if (tr.selection === undefined) return;
+            (view as unknown as { state: EditorState }).state = EditorState.create({
+                doc: view.state.doc.toString(),
+                selection: tr.selection as { anchor: number; head: number },
+            });
+        };
+        const handle = document.createElement('div');
+        handle.className = 'dnd-drag-handle';
+        handle.setAttribute('draggable', 'true');
+        view.dom.appendChild(handle);
+        applyTextSelection(view, 2, 4);
+
+        const baseBlock = createBlock('- item', 1, 1);
+        const handler = new DragEventHandler(view, {
+            getDragSourceBlock: () => null,
+            getBlockInfoForHandle: () => baseBlock,
+            getBlockInfoAtPoint: () => null,
+            isBlockInsideRenderedTableCell: () => false,
+            beginPointerDragSession: vi.fn(),
+            finishDragSession: vi.fn(),
+            scheduleDropIndicatorUpdate: vi.fn(),
+            hideDropIndicator: vi.fn(),
+            performDropAtPoint: vi.fn(),
+        });
+
+        handler.attach();
+        dispatchPointer(handle, 'pointerdown', {
+            pointerId: 301,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+        dispatchPointer(window, 'pointerup', {
+            pointerId: 301,
+            pointerType: 'mouse',
+            clientX: 12,
+            clientY: 30,
+        });
+
+        let lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(true);
+        expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(true);
+
+        dispatchPointer(lines[2]!, 'pointerdown', {
+            pointerId: 302,
+            pointerType: 'mouse',
+            clientX: 220,
+            clientY: 50,
+        });
+
         lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
         expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);
         expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(false);
