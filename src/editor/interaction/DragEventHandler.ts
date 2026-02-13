@@ -470,16 +470,18 @@ export class DragEventHandler {
         const isMouse = pointerType === 'mouse';
         const sourceHandleDraggableAttr = handle?.getAttribute('draggable') ?? null;
 
-        // Always prevent default and stop propagation for smart selection
-        // to avoid the selection being cleared by other handlers
-        e.preventDefault();
-        e.stopPropagation();
+        // For non-mouse (touch), prevent default and capture pointer
+        // For mouse, allow native HTML5 drag to work
         if (!isMouse) {
+            e.preventDefault();
+            e.stopPropagation();
             this.pointer.tryCapturePointer(e);
+            if (handle) {
+                handle.setAttribute('draggable', 'false');
+            }
         }
-        if (handle) {
-            handle.setAttribute('draggable', 'false');
-        }
+        // For mouse: don't prevent default - let native drag work
+        // The timeout will commit selection, and native drag will use resolveNativeDragSourceForHandleDrag
 
         const anchorStartLineNumber = precomputedRanges[0].startLineNumber;
         const anchorEndLineNumber = precomputedRanges[precomputedRanges.length - 1].endLineNumber;
