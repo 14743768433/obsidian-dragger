@@ -49,10 +49,6 @@ export class EditorSelectionBridge {
                 toLine,
             });
         }
-        console.log('[Dragger Debug] EditorSelectionBridge.getTextSelections', {
-            count: selections.length,
-            selections,
-        });
         return selections;
     }
 
@@ -98,12 +94,7 @@ export class EditorSelectionBridge {
                 endLineNumber: aligned.endLineNumber,
             });
         }
-        const merged = mergeLineRanges(docLines, ranges);
-        console.log('[Dragger Debug] EditorSelectionBridge.resolveBlockAlignedSelection', {
-            inputSelections: selections,
-            blockRanges: merged,
-        });
-        return merged;
+        return mergeLineRanges(docLines, ranges);
     }
 
     /**
@@ -133,11 +124,6 @@ export class EditorSelectionBridge {
         const intersects = selections.some((selection) => (
             safeEnd >= selection.fromLine && safeStart <= selection.toLine
         ));
-        console.log('[Dragger Debug] EditorSelectionBridge.getBlockAlignedRangeIfRangeIntersecting', {
-            blockRange: { startLineNumber: safeStart, endLineNumber: safeEnd },
-            selections,
-            intersects,
-        });
         if (!intersects) return null;
 
         // Return the block-aligned selection

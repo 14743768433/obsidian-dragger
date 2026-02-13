@@ -59,15 +59,6 @@ export class SmartBlockSelector {
                   clickedEndLine
               );
 
-        console.log('[Dragger Debug] SmartBlockSelector.evaluate', {
-            clickedBlock: {
-                startLine: clickedBlock.startLine,
-                endLine: clickedBlock.endLine,
-            },
-            alignedRanges,
-            usedSnapshot: !!selectionSnapshot,
-        });
-
         if (!alignedRanges) {
             return {
                 shouldUseSmartSelection: false,
@@ -86,15 +77,6 @@ export class SmartBlockSelector {
             mergedRanges,
             clickedBlock
         );
-        console.log('[Dragger Debug] SmartBlockSelector.result', {
-            mergedRanges,
-            sourceBlock: {
-                startLine: blockInfo.startLine,
-                endLine: blockInfo.endLine,
-                hasComposite: !!blockInfo.compositeSelection,
-            },
-        });
-
         return {
             shouldUseSmartSelection: true,
             ranges: mergedRanges,
@@ -119,12 +101,6 @@ export class SmartBlockSelector {
         const intersects = snapshot.some((selection) => (
             safeEnd >= selection.fromLine && safeStart <= selection.toLine
         ));
-
-        console.log('[Dragger Debug] SmartBlockSelector.getFromSnapshot', {
-            snapshot: snapshot.map(s => ({ fromLine: s.fromLine, toLine: s.toLine })),
-            clickedRange: { start: safeStart, end: safeEnd },
-            intersects,
-        });
 
         if (!intersects) return null;
 

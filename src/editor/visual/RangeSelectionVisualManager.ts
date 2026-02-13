@@ -41,11 +41,6 @@ export class RangeSelectionVisualManager {
     render(ranges: LineRange[], options?: { showLinks?: boolean; highlightHandles?: boolean }): void {
         const showLinks = options?.showLinks ?? true;
         const highlightHandles = options?.highlightHandles ?? true;
-        console.log('[Dragger Debug] RangeSelectionVisualManager.render', {
-            ranges: JSON.stringify(ranges),
-            showLinks,
-            highlightHandles,
-        });
         const normalizedRanges = this.mergeLineRanges(ranges);
         const nextLineElements = new Set<HTMLElement>();
         const nextLineNumberElements = new Set<HTMLElement>();
@@ -64,9 +59,6 @@ export class RangeSelectionVisualManager {
                     const lineEl = this.getLineElementForLine(lineNumber);
                     if (lineEl) {
                         nextLineElements.add(lineEl);
-                        console.log('[Dragger Debug] Found line element for line', lineNumber, ':', lineEl.className);
-                    } else {
-                        console.log('[Dragger Debug] No line element found for line', lineNumber);
                     }
                     const lineNumberEl = getLineNumberElementForLine(this.view, lineNumber);
                     if (lineNumberEl) {
@@ -82,7 +74,6 @@ export class RangeSelectionVisualManager {
                 pos = line.to + 1;
             }
         }
-        console.log('[Dragger Debug] Matched lines:', matchedLines, 'lineElements count:', nextLineElements.size);
         if (matchedLines.length > 0 && nextLineElements.size === 0) {
             this.scheduleLineResolutionRetry();
         } else {
@@ -93,10 +84,6 @@ export class RangeSelectionVisualManager {
             nextLineElements,
             RANGE_SELECTED_LINE_CLASS
         );
-        // Verify after sync
-        console.log('[Dragger Debug] After sync, checking DOM for class:', RANGE_SELECTED_LINE_CLASS);
-        const checkEls = this.view.dom.querySelectorAll('.' + RANGE_SELECTED_LINE_CLASS);
-        console.log('[Dragger Debug] DOM elements with class:', checkEls.length);
         this.syncSelectionElements(
             this.lineNumberElements,
             nextLineNumberElements,
@@ -115,10 +102,6 @@ export class RangeSelectionVisualManager {
     }
 
     clear(): void {
-        // Add stack trace to find who is calling clear
-        console.log('[Dragger Debug] RangeSelectionVisualManager.clear called, lineElements count:', this.lineElements.size);
-        console.log('[Dragger Debug] clear() stack trace:', new Error().stack);
-
         // Clear tracked elements
         for (const lineEl of this.lineElements) {
             lineEl.classList.remove(RANGE_SELECTED_LINE_CLASS);
@@ -142,8 +125,6 @@ export class RangeSelectionVisualManager {
 
         const remainingHandleElements = this.view.dom.querySelectorAll(`.${RANGE_SELECTED_HANDLE_CLASS}`);
         remainingHandleElements.forEach(el => el.classList.remove(RANGE_SELECTED_HANDLE_CLASS));
-
-        console.log('[Dragger Debug] Cleared remaining elements - lines:', remainingLineElements.length, 'handles:', remainingHandleElements.length);
 
         this.hideLinks();
         this.clearLineResolutionRetry();
@@ -271,12 +252,6 @@ export class RangeSelectionVisualManager {
         next: Set<HTMLElement>,
         className: string
     ): void {
-        console.log('[Dragger Debug] syncSelectionElements', {
-            className,
-            currentSize: current.size,
-            nextSize: next.size,
-        });
-
         // Remove class from elements that are no longer selected
         // Use a direct DOM check instead of relying on Set identity
         for (const el of current) {
@@ -286,15 +261,12 @@ export class RangeSelectionVisualManager {
         }
 
         // Add class to all elements in next set (they should all have the class)
-        let addedCount = 0;
         for (const el of next) {
             if (!el.isConnected) continue;
             if (!el.classList.contains(className)) {
                 el.classList.add(className);
-                addedCount++;
             }
         }
-        console.log('[Dragger Debug] syncSelectionElements added', addedCount, 'classes');
 
         current.clear();
         for (const el of next) {
