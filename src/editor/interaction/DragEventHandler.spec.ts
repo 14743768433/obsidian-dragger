@@ -724,20 +724,18 @@ describe('DragEventHandler', () => {
             clientY: 105,
         });
 
-        let link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
-        expect(link).not.toBeNull();
-        expect(link?.classList.contains('is-active')).toBe(true);
+        expect(view.dom.querySelectorAll('.dnd-range-selected-line').length).toBeGreaterThan(0);
+        expect(view.dom.querySelector('.dnd-range-selection-link')).toBeNull();
 
-        dispatchPointer(view.contentDOM, 'pointerdown', {
+        const lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
+        dispatchPointer(lines[7] ?? view.contentDOM, 'pointerdown', {
             pointerId: 42,
             pointerType: 'mouse',
             clientX: 220,
-            clientY: 40,
+            clientY: 170,
         });
 
-        link = view.dom.querySelector<HTMLElement>('.dnd-range-selection-link');
-        expect(link).not.toBeNull();
-        expect(link?.classList.contains('is-active')).toBe(false);
+        expect(view.dom.querySelector('.dnd-range-selection-link')).toBeNull();
         expect(view.dom.querySelector('.dnd-range-selected-line')).toBeNull();
         handler.destroy();
     });
@@ -2053,11 +2051,11 @@ describe('DragEventHandler', () => {
         expect(lines[2]?.classList.contains('dnd-range-selected-line')).toBe(true);
         expect(lines[3]?.classList.contains('dnd-range-selected-line')).toBe(true);
 
-        dispatchPointer(lines[2]!, 'pointerdown', {
+        dispatchPointer(lines[5]!, 'pointerdown', {
             pointerId: 112,
             pointerType: 'mouse',
             clientX: 220,
-            clientY: 50,
+            clientY: 120,
         });
         lines = view.contentDOM.querySelectorAll<HTMLElement>('.cm-line');
         expect(lines[1]?.classList.contains('dnd-range-selected-line')).toBe(false);

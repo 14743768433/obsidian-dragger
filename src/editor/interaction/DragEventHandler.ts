@@ -7,6 +7,7 @@ import {
 import {
     DRAG_HANDLE_CLASS,
     EMBED_HANDLE_CLASS,
+    RANGE_SELECTED_LINE_CLASS,
     RANGE_SELECTED_HANDLE_CLASS,
     RANGE_SELECTION_LINK_CLASS,
 } from '../core/selectors';
@@ -344,6 +345,10 @@ export class DragEventHandler {
 
     isGestureActive(): boolean {
         return this.hasActivePointerSession();
+    }
+
+    hasCommittedSelection(): boolean {
+        return this.committedRangeSelection !== null;
     }
 
     refreshSelectionVisual(): void {
@@ -1254,16 +1259,19 @@ export class DragEventHandler {
         const isLink = target.closest(`.${RANGE_SELECTION_LINK_CLASS}`);
         const isSelectedHandle = target.closest(`.${RANGE_SELECTED_HANDLE_CLASS}`);
         const isHandle = target.closest(`.${DRAG_HANDLE_CLASS}`);
+        const isSelectedLine = target.closest(`.${RANGE_SELECTED_LINE_CLASS}`);
         console.log('[Dragger Debug] shouldClearCommittedSelectionOnPointerDown', {
             targetClass: target.className,
             isLink: !!isLink,
             isSelectedHandle: !!isSelectedHandle,
             isHandle: !!isHandle,
+            isSelectedLine: !!isSelectedLine,
             clientX,
         });
         if (isLink) return false;
         if (isSelectedHandle) return false;
         if (isHandle) return false;
+        if (isSelectedLine) return false;
 
         if (pointerType && pointerType !== 'mouse') {
             if (!this.mobile.isWithinContentTolerance(clientX)) {

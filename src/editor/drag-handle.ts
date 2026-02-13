@@ -239,7 +239,12 @@ function createDragHandleViewPlugin(_plugin: DragNDropPlugin) {
                     this.refreshDecorationsAndEmbeds();
                 }
 
-                if (update.docChanged || update.geometryChanged) {
+                if (
+                    update.docChanged
+                    || update.geometryChanged
+                    || update.selectionSet
+                    || this.dragEventHandler.hasCommittedSelection()
+                ) {
                     this.dragEventHandler.refreshSelectionVisual();
                 }
                 const activeHandle2 = this.handleVisibility.getActiveHandle();
