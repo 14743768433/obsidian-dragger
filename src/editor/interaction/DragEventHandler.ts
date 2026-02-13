@@ -28,7 +28,7 @@ import {
     resolveTargetBoundaryForRangeSelection,
     resolveBlockBoundaryAtLine,
 } from './RangeSelectionLogic';
-import { SmartBlockSelector } from './SmartBlockSelector';
+import { SmartBlockSelector, SmartSelectionResult } from './SmartBlockSelector';
 
 const MOBILE_DRAG_LONG_PRESS_MS = 100;
 const MOBILE_DRAG_START_MOVE_THRESHOLD_PX = 8;
@@ -98,13 +98,31 @@ export class DragEventHandler {
     readonly mobile: MobileGestureController;
     readonly pointer: PointerSessionController;
     private readonly smartSelector: SmartBlockSelector;
+    // Selection snapshot captured at pointerdown start, before browser might clear it
+    private selectionSnapshotAtPointerDown: SmartSelectionResult | null = null;
 
     private readonly onEditorPointerDown = (e: PointerEvent) => {
+        // CRITICAL: Capture editor selection snapshot IMMEDIATELY at pointerdown start.
+        // The browser/editor may clear the text selection during event processing,
+        // so we must capture it before any other logic runs.
+        this.selectionSnapshotAtPointerDown = null;
+        const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
+        if (multiLineSelectionEnabled && e.button === 0) {
+            const snapshot = this.smartSelector.captureSelectionSnapshot();
+            if (snapshot.length > 0) {
+                console.log('[Dragger Debug] Captured selection snapshot at pointerdown:', {
+                    selections: snapshot.map(s => ({ fromLine: s.fromLine, toLine: s.toLine })),
+                });
+                // Store snapshot for later use in startPointerDragFromHandle
+                // We'll evaluate it when we know which block was clicked
+                (this as { _pendingSelectionSnapshot?: typeof snapshot })._pendingSelectionSnapshot = snapshot;
+            }
+        }
+
         const target = e.target instanceof HTMLElement ? e.target : null;
         if (!target) return;
         const pointerType = e.pointerType || null;
         this.lastPointerType = pointerType;
-        const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();
         if (!multiLineSelectionEnabled) {
             this.clearCommittedRangeSelection({ reason: 'feature_disabled' });
         }
@@ -248,7 +266,15 @@ export class DragEventHandler {
         // Smart block selection: if there's an editor text selection and the clicked block
         // intersects with it, use the block-aligned selection directly
         if (e.pointerType === 'mouse' && multiLineSelectionEnabled && e.button === 0) {
-            const smartResult = this.smartSelector.evaluate(blockInfo);
+            // Use the pre-captured selection snapshot if available
+            const snapshot = (this as { _pendingSelectionSnapshot?: unknown })._pendingSelectionSnapshot;
+            const smartResult = this.smartSelector.evaluate(
+                blockInfo,
+                snapshot as import('./SmartBlockSelector').EditorTextSelection[] | undefined
+            );
+            // Clear the snapshot after use
+            delete (this as { _pendingSelectionSnapshot?: unknown })._pendingSelectionSnapshot;
+
             if (smartResult.shouldUseSmartSelection && smartResult.blockInfo) {
                 this.startRangeSelectWithPrecomputedRanges(
                     smartResult.blockInfo,
@@ -259,6 +285,9 @@ export class DragEventHandler {
                 return;
             }
         }
+
+        // Clear the snapshot if we didn't use it
+        delete (this as { _pendingSelectionSnapshot?: unknown })._pendingSelectionSnapshot;
 
         if (e.pointerType === 'mouse') {
             if (e.button !== 0) return;
@@ -441,13 +470,15 @@ export class DragEventHandler {
         const isMouse = pointerType === 'mouse';
         const sourceHandleDraggableAttr = handle?.getAttribute('draggable') ?? null;
 
+        // Always prevent default and stop propagation for smart selection
+        // to avoid the selection being cleared by other handlers
+        e.preventDefault();
+        e.stopPropagation();
         if (!isMouse) {
-            e.preventDefault();
-            e.stopPropagation();
             this.pointer.tryCapturePointer(e);
-            if (handle) {
-                handle.setAttribute('draggable', 'false');
-            }
+        }
+        if (handle) {
+            handle.setAttribute('draggable', 'false');
         }
 
         const anchorStartLineNumber = precomputedRanges[0].startLineNumber;
@@ -833,9 +864,8 @@ export class DragEventHandler {
             && state.pointerType === 'mouse'
         ) ? 'smart_mouse' : 'other';
         this.lastCommittedSelectionAtMs = Date.now();
-        // Committed selection should be visibly interactive (link bar),
-        // but keep handles normal to avoid "weird handle" appearance.
-        this.rangeVisual.render(committedRanges, { showLinks: true, highlightHandles: false });
+        // Render selection visual without link bar (user doesn't want the black vertical line)
+        this.rangeVisual.render(committedRanges, { showLinks: false, highlightHandles: false });
         // Hide handles for non-anchor blocks during selection
         if (this.deps.setHiddenRangesForSelection) {
             this.deps.setHiddenRangesForSelection(committedRanges, state.sourceHandle);
@@ -960,8 +990,9 @@ export class DragEventHandler {
 
         console.log('[Dragger Debug] About to render selection, mergedRanges:', JSON.stringify(mergedRanges));
 
-        // Re-render visual and hide other handles
-        this.rangeVisual.render(mergedRanges, { showLinks: true, highlightHandles: false });
+        // Re-render visual (without link bar) and hide other handles
+        // Don't show link bar after drop - user doesn't want the "big black line"
+        this.rangeVisual.render(mergedRanges, { showLinks: false, highlightHandles: false });
         if (this.deps.setHiddenRangesForSelection) {
             const newAnchorHandle = this.findHandleAtLine(clampedStartLine);
             console.log('[Dragger Debug] Setting hidden ranges after drop restore', {
@@ -1073,11 +1104,11 @@ export class DragEventHandler {
         });
         if (this.gesture.phase === 'range_selecting') {
             const state = this.gesture.rangeSelect;
-            this.rangeVisual.render(state.selectionRanges, { showLinks: state.showLinks, highlightHandles: state.highlightHandles });
+            this.rangeVisual.render(state.selectionRanges, { showLinks: false, highlightHandles: state.highlightHandles });
             return;
         }
         if (this.committedRangeSelection) {
-            this.rangeVisual.render(this.committedRangeSelection.ranges, { showLinks: true, highlightHandles: false });
+            this.rangeVisual.render(this.committedRangeSelection.ranges, { showLinks: false, highlightHandles: false });
         }
     }
 

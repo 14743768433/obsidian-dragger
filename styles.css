@@ -130,10 +130,10 @@ body:not(.dnd-block-selection-active) .dnd-drag-handle:hover {
     width: 3px;
     transform: translateX(-50%);
     border-radius: 999px;
-    /* Use selection color, not handle color, to avoid "black sidebar" in light themes
-       where handle color defaults to --text-normal. */
-    background-color: var(--dnd-selection-highlight-color, var(--interactive-accent));
-    box-shadow: 0 0 4px color-mix(in srgb, var(--dnd-selection-highlight-color, var(--interactive-accent)) 28%, transparent);
+    /* Use a more reliable color fallback chain to avoid "black sidebar" in light themes.
+       Fallback order: custom var -> text-accent -> interactive-accent -> explicit purple */
+    background-color: var(--dnd-selection-highlight-color, var(--text-accent, var(--interactive-accent, #7c3aed)));
+    box-shadow: 0 0 4px color-mix(in srgb, var(--dnd-selection-highlight-color, var(--text-accent, var(--interactive-accent, #7c3aed))) 28%, transparent);
     will-change: left, top, height, opacity;
     transition:
         left 45ms linear,
