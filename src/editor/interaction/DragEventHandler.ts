@@ -28,7 +28,7 @@ import {
     resolveTargetBoundaryForRangeSelection,
     resolveBlockBoundaryAtLine,
 } from './RangeSelectionLogic';
-import { SmartBlockSelector, SmartSelectionResult, EditorTextSelection } from './SmartBlockSelector';
+import { SmartBlockSelector, EditorTextSelection } from './SmartBlockSelector';
 
 const MOBILE_DRAG_LONG_PRESS_MS = 100;
 const MOBILE_DRAG_START_MOVE_THRESHOLD_PX = 8;
@@ -106,14 +106,11 @@ export class DragEventHandler {
     readonly mobile: MobileGestureController;
     readonly pointer: PointerSessionController;
     private readonly smartSelector: SmartBlockSelector;
-    // Selection snapshot captured at pointerdown start, before browser might clear it
-    private selectionSnapshotAtPointerDown: SmartSelectionResult | null = null;
 
     private readonly onEditorPointerDown = (e: PointerEvent) => {
         // CRITICAL: Capture editor selection snapshot IMMEDIATELY at pointerdown start.
         // The browser/editor may clear the text selection during event processing,
         // so we must capture it before any other logic runs.
-        this.selectionSnapshotAtPointerDown = null;
         this.pendingSelectionSnapshot = null;
         this.pendingSmartCommitEventTimeStamp = null;
         const multiLineSelectionEnabled = this.isMultiLineSelectionEnabled();

@@ -5,7 +5,7 @@ import {
     hasVisibleLineNumberGutter,
 } from '../core/handle-position';
 import { DRAG_HANDLE_CLASS } from '../core/selectors';
-import { SelectionHighlightManager } from './HoverHighlightManager';
+import { SelectionHighlightManager } from './SelectionHighlightManager';
 import {
     HANDLE_INTERACTION_ZONE_PX,
     HOVER_HIDDEN_LINE_NUMBER_CLASS,
